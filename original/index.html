@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>מערכת ניהול עסק</title>
+<style>
+  :root{
+    --ink:#1a2b28;         /* deep pine */
+    --ink-soft:#3c534d;
+    --paper:#f3efe4;       /* warm register paper */
+    --paper-2:#e9e3d2;
+    --line:#cdc4ac;
+    --brass:#b8863b;       /* brass till accent */
+    --brass-d:#8f6725;
+    --sale:#2f6f4e;        /* green ring / paid */
+    --sale-d:#245c40;
+    --cash:#3a6ea5;
+    --danger:#a8412e;
+    --pending:#b07d1f;
+    --white:#fbf9f2;
+    --shadow:0 2px 0 rgba(26,43,40,.12), 0 6px 20px rgba(26,43,40,.10);
+    --r:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    font-family:"Segoe UI","Assistant","Heebo",system-ui,sans-serif;
+    background:
+      radial-gradient(120% 80% at 50% -10%, #fbf8ee 0%, var(--paper) 55%, var(--paper-2) 100%);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .app{max-width:1180px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column}
+
+  /* ---------- top bar ---------- */
+  header{
+    display:flex;align-items:center;gap:12px;
+    padding:14px 18px;border-bottom:2px solid var(--line);
+    background:linear-gradient(#fbf8ef,#f1ecdd);
+    position:sticky;top:0;z-index:50;
+  }
+  .brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:20px;letter-spacing:.2px}
+  .brand .till{
+    width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+    background:linear-gradient(160deg,var(--brass),var(--brass-d));color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.35);font-size:19px;
+  }
+  .back-btn{
+    display:none;align-items:center;gap:6px;
+    background:var(--white);border:1.5px solid var(--line);color:var(--ink);
+    padding:9px 14px;border-radius:11px;font-weight:700;font-size:15px;cursor:pointer;
+    box-shadow:var(--shadow);transition:transform .06s;
+  }
+  .back-btn:active{transform:translateY(1px)}
+  .back-btn.show{display:inline-flex}
+  .spacer{flex:1}
+
+  .backup-chip{
+    display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:700;
+    padding:8px 12px;border-radius:999px;border:1.5px solid var(--line);
+    background:var(--white);cursor:pointer;user-select:none;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:#b9b09a;flex:none}
+  .backup-chip.armed .dot{background:var(--sale);box-shadow:0 0 0 3px rgba(47,111,78,.18)}
+  .backup-chip.saving .dot{background:var(--brass);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* ---------- nav tabs ---------- */
+  nav{display:flex;gap:8px;padding:12px 18px 0;flex-wrap:wrap}
+  .tab{
+    flex:1;min-width:120px;text-align:center;cursor:pointer;
+    padding:13px 10px;border-radius:12px 12px 0 0;font-weight:800;font-size:16px;
+    background:var(--paper-2);border:1.5px solid var(--line);border-bottom:none;color:var(--ink-soft);
+  }
+  .tab.active{background:var(--white);color:var(--ink);box-shadow:0 -3px 0 var(--brass) inset}
+
+  main{flex:1;padding:16px 18px 120px}
+  .screen{display:none;animation:in .18s ease}
+  .screen.active{display:block}
+  @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  h2{font-size:22px;margin-bottom:4px}
+  .sub{color:var(--ink-soft);font-size:14px;margin-bottom:16px}
+
+  /* ---------- POS ---------- */
+  .pos-wrap{display:grid;grid-template-columns:1fr 340px;gap:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+  .item{
+    background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);
+    padding:16px 12px;cursor:pointer;text-align:center;box-shadow:var(--shadow);
+    display:flex;flex-direction:column;gap:6px;min-height:96px;justify-content:center;
+    position:relative;transition:transform .06s;
+  }
+  .item:active{transform:translateY(2px)}
+  .item .nm{font-weight:800;font-size:16px;line-height:1.15}
+  .item .pr{color:var(--sale-d);font-weight:800;font-size:15px}
+  .item .stock{position:absolute;top:6px;inset-inline-start:8px;font-size:11px;color:var(--ink-soft);font-weight:700}
+  .item.out{opacity:.45;pointer-events:none}
+  .item .del{position:absolute;top:5px;inset-inline-end:7px;width:20px;height:20px;border-radius:50%;
+    background:var(--paper-2);color:var(--danger);border:none;font-size:14px;line-height:1;cursor:pointer;display:none}
+  body.edit-items .item .del{display:block}
+
+  .add-tile{border:2px dashed var(--brass);background:transparent;color:var(--brass-d);font-weight:800}
+
+  /* cart */
+  .cart{
+    background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);
+    box-shadow:var(--shadow);display:flex;flex-direction:column;position:sticky;top:150px;height:fit-content;max-height:calc(100dvh - 180px)
+  }
+  .cart h3{padding:14px 16px;border-bottom:1.5px solid var(--line);font-size:17px;display:flex;justify-content:space-between}
+  .cart-lines{overflow:auto;padding:8px 10px;flex:1;min-height:60px}
+  .empty{color:var(--ink-soft);text-align:center;padding:26px 10px;font-size:14px}
+  .line{display:flex;align-items:center;gap:8px;padding:8px 6px;border-bottom:1px dashed var(--line)}
+  .line:last-child{border-bottom:none}
+  .line .l-nm{flex:1;font-weight:700;font-size:14px}
+  .qty{display:flex;align-items:center;gap:6px}
+  .qty button{width:26px;height:26px;border-radius:8px;border:1.5px solid var(--line);background:var(--paper);font-weight:800;cursor:pointer}
+  .line .l-pr{width:64px;text-align:left;font-weight:800;font-size:14px}
+  .cart-foot{padding:14px 16px;border-top:2px solid var(--line);background:var(--paper)}
+  .total{display:flex;justify-content:space-between;font-size:22px;font-weight:900;margin-bottom:12px}
+  .pay-btn{width:100%;padding:15px;border:none;border-radius:12px;font-size:19px;font-weight:900;color:#fff;
+    background:linear-gradient(160deg,var(--sale),var(--sale-d));cursor:pointer;box-shadow:var(--shadow)}
+  .pay-btn:disabled{opacity:.4;cursor:default}
+
+  /* ---------- generic buttons / cards ---------- */
+  .btn{border:1.5px solid var(--line);background:var(--white);padding:12px 16px;border-radius:12px;font-weight:800;
+    font-size:15px;cursor:pointer;box-shadow:var(--shadow);display:inline-flex;gap:8px;align-items:center}
+  .btn.primary{background:linear-gradient(160deg,var(--brass),var(--brass-d));color:#fff;border-color:var(--brass-d)}
+  .btn.green{background:linear-gradient(160deg,var(--sale),var(--sale-d));color:#fff;border:none}
+  .btn.blue{background:linear-gradient(160deg,#4a7fb5,var(--cash));color:#fff;border:none}
+  .btn.danger{background:var(--white);color:var(--danger);border-color:var(--danger)}
+  .btn:active{transform:translateY(1px)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .card{background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+  .card h3{font-size:17px;margin-bottom:10px}
+
+  input,select{font-family:inherit;font-size:15px;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--white);width:100%}
+  label{font-size:13px;font-weight:700;color:var(--ink-soft);display:block;margin-bottom:5px}
+  .field{margin-bottom:12px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:10px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.4px}
+  tbody tr:hover{background:var(--paper)}
+  .tag{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:800}
+  .tag.paid{background:rgba(47,111,78,.14);color:var(--sale-d)}
+  .tag.pending{background:rgba(176,125,31,.16);color:var(--pending)}
+  .tag.cash{background:rgba(58,110,165,.14);color:var(--cash)}
+  .tag.barcode{background:rgba(184,134,59,.16);color:var(--brass-d)}
+
+  /* stat cards */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
+  .stat .k{font-size:12px;color:var(--ink-soft);font-weight:700}
+  .stat .v{font-size:26px;font-weight:900;margin-top:4px}
+  .stat.pos .v{color:var(--sale-d)}
+  .stat.neg .v{color:var(--danger)}
+
+  /* employees */
+  .emp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+  .emp{background:var(--white);border:1.5px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+    padding:16px;text-align:center;cursor:pointer;position:relative}
+  .emp.on{border-color:var(--sale);box-shadow:0 0 0 2px rgba(47,111,78,.18),var(--shadow)}
+  .emp .en{font-weight:800;font-size:17px}
+  .emp .est{font-size:13px;margin-top:6px;font-weight:700;color:var(--ink-soft)}
+  .emp.on .est{color:var(--sale-d)}
+  .live-timer{font-variant-numeric:tabular-nums;font-weight:900;font-size:16px}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(26,43,40,.5);display:none;place-items:center;z-index:100;padding:18px;backdrop-filter:blur(2px)}
+  .overlay.show{display:grid}
+  .modal{background:var(--white);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:100%;max-width:420px;overflow:hidden;animation:pop .2s}
+  @keyframes pop{from{transform:scale(.94);opacity:0}to{transform:none;opacity:1}}
+  .modal-h{padding:18px 20px;border-bottom:1.5px solid var(--line);font-size:19px;font-weight:900;display:flex;justify-content:space-between;align-items:center}
+  .modal-b{padding:20px}
+  .modal-x{border:none;background:var(--paper-2);width:30px;height:30px;border-radius:50%;font-size:17px;cursor:pointer}
+  .pay-choice{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .pay-choice .btn{flex-direction:column;padding:26px 10px;font-size:18px}
+  .pay-choice .emoji{font-size:34px}
+
+  .done-ring{width:88px;height:88px;border-radius:50%;margin:6px auto 14px;display:grid;place-items:center;
+    background:radial-gradient(circle,rgba(47,111,78,.12),transparent 70%);}
+  .done-ring .ck{width:64px;height:64px;border-radius:50%;background:linear-gradient(160deg,var(--sale),var(--sale-d));
+    color:#fff;display:grid;place-items:center;font-size:34px;box-shadow:var(--shadow)}
+  .done-txt{text-align:center}
+  .done-txt .big{font-size:24px;font-weight:900}
+  .done-txt .amt{font-size:20px;color:var(--sale-d);font-weight:900;margin:6px 0}
+
+  /* undo toast */
+  .toast{position:fixed;bottom:22px;inset-inline:0;margin:auto;width:fit-content;max-width:92%;
+    background:var(--ink);color:var(--white);padding:13px 18px;border-radius:14px;display:none;
+    align-items:center;gap:16px;z-index:120;box-shadow:0 10px 30px rgba(0,0,0,.3);font-weight:700}
+  .toast.show{display:flex;animation:in .2s}
+  .toast .undo{background:var(--brass);color:#fff;border:none;padding:8px 14px;border-radius:9px;font-weight:900;cursor:pointer}
+  .toast .cbar{width:34px;height:34px;position:relative}
+  .toast .cbar svg{transform:rotate(-90deg)}
+  .toast .cnum{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-weight:900}
+
+  .mini{font-size:12px;color:var(--ink-soft)}
+  .hint{background:rgba(184,134,59,.1);border:1px solid rgba(184,134,59,.35);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--brass-d);margin-bottom:14px;line-height:1.5}
+
+  @media(max-width:820px){
+    .pos-wrap{grid-template-columns:1fr}
+    .cart{position:static;max-height:none;order:-1}
+    .two{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div id="splash" style="position:fixed;inset:0;z-index:200;display:grid;place-items:center;
+  background:radial-gradient(120% 90% at 50% 0%,#fbf8ee,#e9e3d2);text-align:center;padding:24px">
+  <div style="max-width:420px;width:100%">
+    <div style="width:76px;height:76px;border-radius:20px;margin:0 auto 18px;display:grid;place-items:center;
+      background:linear-gradient(160deg,#b8863b,#8f6725);color:#fff;font-size:40px;box-shadow:0 8px 24px rgba(0,0,0,.18)">₪</div>
+    <h1 style="font-size:26px;margin-bottom:6px">קופה קיוסק בריכה</h1>
+    <p style="color:#3c534d;font-size:15px;margin-bottom:26px">מערכת ניהול עסק מקומית</p>
+    <button class="btn green" id="splashEnter" style="width:100%;padding:16px;font-size:19px;margin-bottom:12px">כניסה למערכת</button>
+    <button class="btn primary" id="splashBackup" style="width:100%;padding:16px;font-size:17px">🔗 חיבור תיקיית גיבוי</button>
+    <p id="splashBackupState" class="mini" style="margin-top:12px;color:#3c534d">גיבוי לא מחובר</p>
+    <p class="mini" style="margin-top:20px;color:#8f6725;line-height:1.6">הגיבוי נשמר אוטומטית לתיקייה שתבחר, בתוך תיקיית שבוע נפרדת. פועל ב-Chrome/Edge במחשב, גם ללא אינטרנט.</p>
+  </div>
+</div>
+<div class="app">
+  <header>
+    <button class="back-btn" id="backBtn">‹ חזור</button>
+    <div class="brand"><span class="till">₪</span><span>מערכת ניהול עסק</span></div>
+    <div class="spacer"></div>
+    <div class="backup-chip" id="backupChip" title="חיבור קובץ גיבוי מקומי">
+      <span class="dot"></span><span id="backupTxt">גיבוי: כבוי</span>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <div class="tab active" data-screen="pos">קופה</div>
+    <div class="tab" data-screen="clock">שעון נוכחות</div>
+    <div class="tab" data-screen="manager">אזור מנהל</div>
+  </nav>
+
+  <main>
+    <!-- ============ POS ============ -->
+    <section class="screen active" id="pos">
+      <div class="pos-wrap">
+        <div>
+          <div class="row" style="justify-content:space-between">
+            <h2>עמדת מכירה</h2>
+            <div style="display:flex;gap:8px">
+              <button class="btn" id="empTakeBtn">👤 מוצרי עובד</button>
+              <button class="btn" id="editItemsBtn">✎ עריכת פריטים</button>
+            </div>
+          </div>
+          <div class="grid" id="itemGrid"></div>
+        </div>
+        <aside class="cart">
+          <h3><span>החשבון</span><span id="cartCount" class="mini"></span></h3>
+          <div class="cart-lines" id="cartLines"><div class="empty">לחצו על פריט כדי להוסיף לחשבון</div></div>
+          <div class="cart-foot">
+            <div id="discountRow" style="display:none;justify-content:space-between;color:var(--danger);font-weight:800;margin-bottom:6px">
+              <span id="discountLabel">הנחה</span><span id="discountAmt">-₪0</span>
+            </div>
+            <div class="total"><span>סה״כ</span><span id="cartTotal">₪0</span></div>
+            <div class="row" style="margin-bottom:10px;gap:8px">
+              <button class="btn" id="discountBtn" style="flex:1;justify-content:center">％ הנחה</button>
+              <button class="btn" id="clearDiscBtn" style="display:none;justify-content:center" title="בטל הנחה">↺</button>
+            </div>
+            <button class="pay-btn" id="payBtn" disabled>תשלום</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ============ CLOCK ============ -->
+    <section class="screen" id="clock">
+      <h2>שעון נוכחות עובדים</h2>
+      <p class="sub">בחרו עובד כדי להתחיל או לסיים משמרת · סיום אוטומטי לאחר 10 שעות רצופות</p>
+      <div class="emp-grid" id="clockGrid"></div>
+    </section>
+
+    <!-- ============ MANAGER ============ -->
+    <section class="screen" id="manager">
+      <div id="mgrLocked">
+        <div class="card" style="max-width:420px;margin:40px auto">
+          <h3>כניסת מנהל</h3>
+          <p class="sub">הזינו סיסמה כדי לגשת לנתוני המערכת</p>
+          <div class="field"><input type="password" id="mgrPass" placeholder="סיסמה" inputmode="numeric"></div>
+          <button class="btn primary" id="mgrLogin" style="width:100%">כניסה</button>
+        </div>
+      </div>
+
+      <div id="mgrPanel" style="display:none">
+        <div class="row">
+          <div class="tab active mgr-tab" data-mtab="income" style="border-radius:12px">הכנסות</div>
+          <div class="tab mgr-tab" data-mtab="expenses" style="border-radius:12px">הוצאות</div>
+          <div class="tab mgr-tab" data-mtab="inventory" style="border-radius:12px">מלאי ומוצרים</div>
+          <div class="tab mgr-tab" data-mtab="payroll" style="border-radius:12px">עובדים ושכר</div>
+          <div class="tab mgr-tab" data-mtab="settings" style="border-radius:12px">הגדרות</div>
+        </div>
+
+        <!-- INCOME -->
+        <div class="mtab-screen" id="m-income">
+          <div class="stats">
+            <div class="stat pos"><div class="k">הכנסות היום</div><div class="v" id="incToday">₪0</div></div>
+            <div class="stat pos"><div class="k">השבוע</div><div class="v" id="incWeek">₪0</div></div>
+            <div class="stat pos"><div class="k">החודש</div><div class="v" id="incMonth">₪0</div></div>
+            <div class="stat" id="netCard"><div class="k">רווח נקי (החודש)</div><div class="v" id="netProfit">₪0</div></div>
+          </div>
+          <div class="row"><button class="btn primary" id="exportDaily">📅 ייצוא דוח יומי (CSV)</button>
+            <button class="btn green" id="exportXls">⬇ ייצוא מלא לאקסל</button>
+            <span class="mini">רווח נקי = הכנסות פחות הוצאות ששולמו בפועל</span></div>
+          <div class="card">
+            <h3>יומן חיובים</h3>
+            <table><thead><tr><th>תאריך</th><th>שעה</th><th>סכום</th><th>אמצעי</th><th>פריטים</th><th></th></tr></thead>
+            <tbody id="incTable"></tbody></table>
+          </div>
+        </div>
+
+        <!-- EXPENSES -->
+        <div class="mtab-screen" id="m-expenses" style="display:none">
+          <div class="card">
+            <h3>הוספת הוצאה</h3>
+            <div class="two">
+              <div class="field"><label>תיאור</label><input id="exDesc" placeholder="למשל: ספק סחורה"></div>
+              <div class="field"><label>סכום (₪)</label><input id="exAmt" type="number" inputmode="decimal" placeholder="0"></div>
+            </div>
+            <div class="row">
+              <button class="btn green" data-exstatus="paid">＋ תשלום בוצע</button>
+              <button class="btn" data-exstatus="pending">＋ תשלום ממתין</button>
+            </div>
+          </div>
+          <div class="stats">
+            <div class="stat neg"><div class="k">שולם החודש</div><div class="v" id="exPaidSum">₪0</div></div>
+            <div class="stat"><div class="k">ממתין לתשלום</div><div class="v" id="exPendSum" style="color:var(--pending)">₪0</div></div>
+          </div>
+          <div class="card">
+            <h3>רשימת הוצאות</h3>
+            <table><thead><tr><th>תאריך</th><th>תיאור</th><th>סכום</th><th>סטטוס</th><th></th></tr></thead>
+            <tbody id="exTable"></tbody></table>
+          </div>
+        </div>
+
+        <!-- INVENTORY -->
+        <div class="mtab-screen" id="m-inventory" style="display:none">
+          <div class="card">
+            <h3>הוספת מוצר חדש</h3>
+            <div class="two" style="max-width:560px">
+              <div class="field"><label>שם המוצר</label><input id="invNewName" placeholder="שם"></div>
+              <div class="field"><label>מחיר (₪) — 0 למוצר חינם</label><input id="invNewPrice" type="number" inputmode="decimal" value="0"></div>
+            </div>
+            <div class="field" style="max-width:250px"><label>מלאי התחלתי (∞ = 999)</label><input id="invNewStock" type="number" value="999"></div>
+            <button class="btn primary" id="invAdd">＋ הוסף מוצר</button>
+          </div>
+          <div class="stats">
+            <div class="stat"><div class="k">מספר מוצרים</div><div class="v" id="invCount">0</div></div>
+            <div class="stat"><div class="k">מוצרים אזלו (מלאי 0)</div><div class="v" id="invOut" style="color:var(--danger)">0</div></div>
+          </div>
+          <div class="card">
+            <h3>מלאי ומכירות</h3>
+            <table><thead><tr><th>מוצר</th><th>מחיר</th><th>נמכר סה״כ</th><th>מלאי נוכחי</th><th>עדכון מלאי</th><th></th></tr></thead>
+            <tbody id="invTable"></tbody></table>
+            <p class="mini" style="margin-top:8px">"נמכר סה״כ" כולל מכירות בקופה ולקיחות עובד. עדכון מלאי מיידי; ∞ = מלאי בלתי מוגבל.</p>
+          </div>
+        </div>
+
+        <div class="mtab-screen" id="m-payroll" style="display:none">
+          <div class="card">
+            <h3>ניהול עובדים</h3>
+            <div class="row">
+              <input id="newEmpName" placeholder="שם עובד חדש" style="max-width:220px">
+              <button class="btn primary" id="addEmp">＋ הוסף עובד</button>
+            </div>
+            <table><thead><tr><th>עובד</th><th>סיסמה אישית</th><th>הרשאת הנחה</th><th>עריכת פריטים</th><th></th></tr></thead>
+            <tbody id="empTable"></tbody></table>
+            <p class="mini" style="margin-top:8px">הסיסמה האישית פותחת "מוצרי עובד". סמנו הרשאות בנפרד לכל אזור שדורש סיסמה (הנחה, עריכת פריטים). הכניסה לאזור המנהל אפשרית עם סיסמת מנהל בלבד.</p>
+          </div>
+          <div class="card">
+            <h3>תעריפים והנחת עובד</h3>
+            <div class="two" style="max-width:520px">
+              <div class="field"><label>תעריף חול (₪ לשעה)</label><input id="rateReg" type="number" value="35"></div>
+              <div class="field"><label>תעריף שבת (150%)</label><input id="rateSat" type="number" value="52.5" readonly></div>
+            </div>
+            <div class="field" style="max-width:250px"><label>הנחת עובד על מוצרי עובד (%)</label><input id="empDisc" type="number" value="35"></div>
+            <button class="btn" id="saveRates">שמור הגדרות</button>
+          </div>
+          <div class="card">
+            <h3>מחשבון שכר · טווח תאריכים</h3>
+            <div class="two" style="max-width:480px">
+              <div class="field"><label>מתאריך</label><input id="payFrom" type="date"></div>
+              <div class="field"><label>עד תאריך</label><input id="payTo" type="date"></div>
+            </div>
+            <button class="btn primary" id="calcPay">חשב שכר</button>
+            <table style="margin-top:14px"><thead><tr><th>עובד</th><th>שעות חול</th><th>שעות שבת</th><th>שכר ברוטו</th><th>ניכוי מוצרים</th><th>שכר נטו</th></tr></thead>
+            <tbody id="payTable"></tbody></table>
+          </div>
+          <div class="card">
+            <h3>מוצרי עובד שנלקחו</h3>
+            <div class="row">
+              <button class="btn primary" id="addTakeBtn">＋ הוספה ידנית</button>
+              <span class="mini">המחיר מחושב לאחר הנחת העובד ומנוכה בחישוב השכר.</span>
+            </div>
+            <table><thead><tr><th>עובד</th><th>מוצר</th><th>תאריך</th><th>שעה</th><th>מחיר</th><th></th></tr></thead>
+            <tbody id="takeTable"></tbody></table>
+          </div>
+          <div class="card">
+            <h3>משמרות מתועדות</h3>
+            <table><thead><tr><th>עובד</th><th>תאריך</th><th>כניסה</th><th>יציאה</th><th>שעות</th><th></th></tr></thead>
+            <tbody id="shiftTable"></tbody></table>
+          </div>
+        </div>
+
+        <!-- SETTINGS -->
+        <div class="mtab-screen" id="m-settings" style="display:none">
+          <div class="card" style="max-width:460px">
+            <h3>שינוי סיסמת מנהל</h3>
+            <div class="field"><label>סיסמה חדשה</label><input id="newMgrPass" placeholder="סיסמה חדשה"></div>
+            <button class="btn primary" id="saveMgrPass">עדכן סיסמה</button>
+            <p class="mini" style="margin-top:8px">משמשת גם לפתיחת "הוספת פריט" בקופה.</p>
+          </div>
+          <div class="card" style="max-width:460px">
+            <h3>גיבוי אוטומטי לתיקייה</h3>
+            <p class="mini" style="margin-bottom:10px;line-height:1.6">בחרו תיקייה במחשב (למשל "קופה קיוסק בריכה"). המערכת תיצור בתוכה תיקיית שבוע נפרדת (ראשון עד ראשון) ותשמור אליה אוטומטית קובץ גיבוי מלא (JSON) ודוח קריא (CSV), 10 שניות אחרי כל פעולה. הנתונים מצטברים ולא נדרסים. פועל ב-Chrome/Edge במחשב, גם ללא אינטרנט.</p>
+            <div class="row">
+              <button class="btn primary" id="linkBackup">🔗 חבר תיקיית גיבוי</button>
+              <button class="btn" id="backupNow">שמור עכשיו</button>
+            </div>
+            <p class="mini" id="backupState">לא מחובר</p>
+          </div>
+          <div class="card" style="max-width:460px">
+            <h3>שחזור נתונים</h3>
+            <button class="btn" id="importBackup">📂 טען מקובץ גיבוי (JSON)</button>
+            <button class="btn danger" id="wipeAll" style="margin-inline-start:8px">מחיקת כל הנתונים</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ===== overlay / modal ===== -->
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<!-- ===== undo toast ===== -->
+<div class="toast" id="toast">
+  <div class="cbar"><svg width="34" height="34"><circle cx="17" cy="17" r="14" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="4"/><circle id="toastRing" cx="17" cy="17" r="14" fill="none" stroke="#b8863b" stroke-width="4" stroke-linecap="round" stroke-dasharray="88" stroke-dashoffset="0"/></svg><div class="cnum" id="toastNum">10</div></div>
+  <span id="toastMsg">הפעולה תיגבה בעוד רגע</span>
+  <button class="undo" id="toastUndo">בטל</button>
+</div>
+
+<script>
+/* =========================================================
+   מערכת ניהול עסק — Single File
+   LocalStorage + File System Access API auto-backup
+   ========================================================= */
+const LS_KEY = 'biz_system_v1';
+const ILS = n => '₪' + (Math.round(n*100)/100).toLocaleString('he-IL');
+const now = () => new Date();
+const pad = n => String(n).padStart(2,'0');
+const dateStr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;   // ISO — used internally for storage & range sorting
+const timeStr = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;                     // local wall-clock, matches the computer
+// display date DD/MM/YYYY from an ISO 'YYYY-MM-DD'
+const dispDate = iso => { const [y,m,dd]=String(iso).split('-'); return `${dd}/${m}/${y}`; };
+// force Excel to treat a value as literal text (prevents #### and time auto-conversion)
+const xlText = v => `="${String(v??'').replace(/"/g,'""')}"`;
+
+/* ---------- default state ---------- */
+const defaultState = () => ({
+  password:'2407',
+  items:[
+    {id:id(),name:'קפה',price:12,stock:999},
+    {id:id(),name:'שתייה קרה',price:9,stock:40},
+    {id:id(),name:'כריך',price:22,stock:15},
+    {id:id(),name:'מאפה',price:14,stock:20},
+    {id:id(),name:'סלט',price:32,stock:10},
+    {id:id(),name:'עוגה',price:18,stock:8},
+  ],
+  sales:[],       // {id,date,time,ts,amount,method,lines:[{name,qty}],discountPct?}
+  expenses:[],    // {id,date,ts,desc,amount,status}
+  employees:[     // {id,name,onShift,shiftStart,pass,perms:{discount,editItems}}
+    {id:id(),name:'דנה',onShift:false,shiftStart:null,pass:'1111',perms:{discount:false,editItems:false}},
+    {id:id(),name:'יוסי',onShift:false,shiftStart:null,pass:'2222',perms:{discount:false,editItems:false}},
+    {id:id(),name:'מאיה',onShift:false,shiftStart:null,pass:'3333',perms:{discount:false,editItems:false}},
+  ],
+  shifts:[],      // {id,empId,empName,date,start,end,hoursReg,hoursSat}
+  empTakes:[],    // {id,empId,empName,itemName,date,time,ts,fullPrice,price}  (price = after employee discount)
+  empDiscountPct:35, // global employee discount %
+  rateReg:35,
+});
+function id(){return Math.random().toString(36).slice(2,9)}
+
+let S = load();
+function load(){
+  try{const r=localStorage.getItem(LS_KEY);if(r){return migrate(JSON.parse(r));}}catch(e){}
+  return defaultState();
+}
+/* fill in fields added in later versions so old backups keep working */
+function migrate(s){
+  if(s.empDiscountPct==null) s.empDiscountPct=35;
+  if(!s.empTakes) s.empTakes=[];
+  (s.employees||[]).forEach((e,i)=>{
+    if(e.pass==null) e.pass=String((i+1)).repeat(4);
+    if(!e.perms) e.perms={};
+    if(e.perms.discount==null) e.perms.discount=false;
+    if(e.perms.editItems==null) e.perms.editItems=false;
+  });
+  return s;
+}
+function persist(){ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
+
+/* =========================================================
+   AUTO-BACKUP — directory-based, weekly folders, cumulative
+   Root folder chosen once (e.g. "קופה קיוסק בריכה"); browser
+   remembers permission. Each Sunday a new week subfolder is used.
+   Writes גיבוי.json (full state, for restore) + דוח.csv (readable).
+   Runs 100% locally, no internet, Chrome/Edge desktop only.
+   ========================================================= */
+let backupDir = null;            // FileSystemDirectoryHandle (root)
+let backupTimer = null;
+let toastTimer = null, toastCount = 0, pendingUndo = null;
+const supportsFS = 'showDirectoryPicker' in window;
+
+const chip = document.getElementById('backupChip');
+const chipTxt = document.getElementById('backupTxt');
+
+function setChip(mode){ // 'off' | 'armed' | 'saving'
+  if(!chip)return;
+  chip.classList.remove('armed','saving');
+  if(mode==='armed'){chip.classList.add('armed');chipTxt.textContent='גיבוי: מחובר';}
+  else if(mode==='saving'){chip.classList.add('saving');chipTxt.textContent='שומר...';}
+  else chipTxt.textContent='גיבוי: כבוי';
+}
+function setBackupState(txt){
+  const a=document.getElementById('backupState'); if(a)a.textContent=txt;
+  const b=document.getElementById('splashBackupState'); if(b)b.textContent=txt;
+}
+
+/* ---- week range helpers (week starts Sunday) ---- */
+function weekRange(d=new Date()){
+  const start=new Date(d); start.setHours(0,0,0,0);
+  start.setDate(start.getDate()-start.getDay());   // back to Sunday
+  const end=new Date(start); end.setDate(start.getDate()+7); // next Sunday
+  return {start,end};
+}
+function weekFolderName(d=new Date()){
+  const {start,end}=weekRange(d);
+  const f=x=>`${pad(x.getDate())}-${pad(x.getMonth()+1)}-${x.getFullYear()}`;
+  return `שבוע (${f(start)} עד ${f(end)})`;
+}
+
+async function linkBackupDir(){
+  if(!supportsFS){ alert('הדפדפן אינו תומך בגיבוי אוטומטי לתיקייה.\nהשתמשו ב-Chrome או Edge במחשב (עובד גם ללא אינטרנט), או בכפתור "ייצוא" לגיבוי ידני.'); return; }
+  try{
+    backupDir = await window.showDirectoryPicker({mode:'readwrite'});
+    setChip('armed');
+    setBackupState('מחובר לתיקייה: '+backupDir.name);
+    await writeBackup(); // initial write
+  }catch(e){ /* user cancelled */ }
+}
+
+async function ensureWeekDir(){
+  if(!backupDir) return null;
+  const name=weekFolderName();
+  return await backupDir.getDirectoryHandle(name, {create:true});
+}
+async function writeFileInDir(dir, filename, contents){
+  const fh=await dir.getFileHandle(filename, {create:true});
+  const w=await fh.createWritable();
+  await w.write(contents);
+  await w.close();
+}
+
+async function writeBackup(){
+  if(!backupDir) return;
+  try{
+    setChip('saving');
+    const weekDir=await ensureWeekDir();
+    // full state JSON (for restore)
+    await writeFileInDir(weekDir, 'גיבוי.json',
+      JSON.stringify({savedAt:new Date().toISOString(), data:S}, null, 2));
+    // readable CSV report (this week's data)
+    await writeFileInDir(weekDir, 'דוח.csv', buildReportCSV(weekRange()));
+    setChip('armed');
+    setBackupState('נשמר: '+timeStr(now())+' → '+backupDir.name+' / '+weekFolderName());
+  }catch(e){
+    setChip('armed');
+    setBackupState('שגיאת גיבוי — ייתכן שצריך לחבר תיקייה מחדש');
+    console.warn('backup failed',e);
+  }
+}
+
+/* central trigger: after every significant action */
+function commit(undoLabel, undoFn){
+  persist();
+  renderAll();
+  if(backupDir){ scheduleBackup(); }
+  if(undoLabel){ showUndoToast(undoLabel, undoFn); }
+}
+
+function scheduleBackup(){
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(writeBackup, 10000);   // 10s debounce
+}
+
+/* ---------- undo toast with 10s countdown ---------- */
+const toast=document.getElementById('toast'), toastMsg=document.getElementById('toastMsg'),
+      toastNum=document.getElementById('toastNum'), toastRing=document.getElementById('toastRing');
+function showUndoToast(msg, undoFn){
+  clearInterval(toastTimer);
+  pendingUndo = undoFn; toastCount = 10;
+  toastMsg.textContent = msg;
+  toast.classList.add('show');
+  updateToastRing();
+  toastTimer = setInterval(()=>{
+    toastCount--; updateToastRing();
+    if(toastCount<=0){ hideToast(); }
+  },1000);
+}
+function updateToastRing(){
+  toastNum.textContent = toastCount;
+  toastRing.setAttribute('stroke-dashoffset', 88*(1 - toastCount/10));
+}
+function hideToast(){ clearInterval(toastTimer); toast.classList.remove('show'); pendingUndo=null; }
+document.getElementById('toastUndo').onclick = ()=>{
+  if(pendingUndo){ pendingUndo(); persist(); renderAll(); }
+  clearTimeout(backupTimer);          // cancel the pending file write
+  hideToast();
+};
+
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+const backBtn = document.getElementById('backBtn');
+let navStack = [];
+let mgrUnlocked = false;   // in-memory only; cleared on leaving manager area
+function showScreen(name, push=true){
+  // leaving the manager area re-locks it
+  const leavingManager = document.getElementById('manager').classList.contains('active') && name!=='manager';
+  if(leavingManager){ mgrUnlocked=false; renderManagerGate(); }
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.id===name));
+  document.querySelectorAll('#tabs .tab').forEach(t=>t.classList.toggle('active', t.dataset.screen===name));
+  backBtn.classList.toggle('show', name!=='pos' || document.body.classList.contains('edit-items'));
+}
+document.querySelectorAll('#tabs .tab').forEach(t=>{
+  t.onclick=()=>{ showScreen(t.dataset.screen); if(t.dataset.screen==='manager') renderManagerGate(); };
+});
+backBtn.onclick=()=>{
+  if(document.body.classList.contains('edit-items')){ document.body.classList.remove('edit-items'); backBtn.classList.remove('show'); return; }
+  if(overlay.classList.contains('show')){ closeModal(); return; }
+  showScreen('pos');
+};
+
+/* =========================================================
+   MODAL helpers
+   ========================================================= */
+const overlay=document.getElementById('overlay'), modal=document.getElementById('modal');
+function openModal(html){ modal.innerHTML=html; overlay.classList.add('show'); backBtn.classList.add('show'); }
+function closeModal(){ overlay.classList.remove('show'); if(document.getElementById('pos').classList.contains('active')&&!document.body.classList.contains('edit-items'))backBtn.classList.remove('show'); }
+overlay.onclick=e=>{ if(e.target===overlay) closeModal(); };
+
+/* =========================================================
+   PART 1 — POS
+   ========================================================= */
+let cart = {}; // itemId -> qty
+let genItems = {}; // one-off generic items in current cart: gid -> {id,name,price,generic}
+let cartDiscount = null; // {pct, target:'all'|itemId}
+const findItem = iid => genItems[iid] || S.items.find(i=>i.id===iid);
+const itemGrid=document.getElementById('itemGrid');
+
+function renderItems(){
+  itemGrid.innerHTML='';
+  S.items.forEach(it=>{
+    const out = it.stock<=0;
+    const el=document.createElement('div');
+    el.className='item'+(out?' out':'');
+    el.innerHTML=`<button class="del" data-del="${it.id}">×</button>
+      <span class="stock">מלאי: ${it.stock>=999?'∞':it.stock}</span>
+      <span class="nm">${esc(it.name)}</span><span class="pr">${ILS(it.price)}</span>`;
+    el.onclick=e=>{ if(e.target.dataset.del) return; addToCart(it.id); };
+    itemGrid.appendChild(el);
+  });
+  const gen=document.createElement('div');
+  gen.className='item add-tile';
+  gen.style.borderColor='var(--cash)'; gen.style.color='var(--cash)';
+  gen.innerHTML='<span class="nm">＊ פריט כללי</span>';
+  gen.onclick=promptGeneralItem;
+  itemGrid.appendChild(gen);
+
+  const add=document.createElement('div');
+  add.className='item add-tile';
+  add.innerHTML='<span class="nm">＋ הוספת פריט</span>';
+  add.onclick=promptAddItem;
+  itemGrid.appendChild(add);
+
+  itemGrid.querySelectorAll('[data-del]').forEach(b=>b.onclick=e=>{
+    e.stopPropagation();
+    const item=S.items.find(x=>x.id===b.dataset.del);
+    if(confirm(`למחוק את "${item.name}"?`)){ S.items=S.items.filter(x=>x.id!==b.dataset.del); commit(); }
+  });
+}
+function addToCart(itemId){
+  const it=S.items.find(i=>i.id===itemId); if(!it||it.stock<=0)return;
+  cart[itemId]=(cart[itemId]||0)+1;
+  renderCart();
+}
+function renderCart(){
+  const lines=document.getElementById('cartLines');
+  const ids=Object.keys(cart).filter(k=>cart[k]>0);
+  const discRow=document.getElementById('discountRow');
+  const clearBtn=document.getElementById('clearDiscBtn');
+  if(!ids.length){ lines.innerHTML='<div class="empty">לחצו על פריט כדי להוסיף לחשבון</div>';
+    document.getElementById('cartTotal').textContent='₪0';
+    document.getElementById('payBtn').disabled=true;
+    document.getElementById('cartCount').textContent='';
+    cartDiscount=null; discRow.style.display='none'; clearBtn.style.display='none'; return; }
+  let gross=0,count=0;
+  lines.innerHTML='';
+  ids.forEach(iid=>{
+    const it=findItem(iid); if(!it)return;
+    const q=cart[iid]; gross+=q*it.price; count+=q;
+    const discounted = cartDiscount && (cartDiscount.target==='all'||cartDiscount.target===iid);
+    const l=document.createElement('div'); l.className='line';
+    l.innerHTML=`<span class="l-nm">${esc(it.name)}${discounted?` <span class="mini" style="color:var(--danger)">(-${cartDiscount.pct}%)</span>`:''}</span>
+      <div class="qty"><button data-m="${iid}">−</button><b>${q}</b><button data-p="${iid}">＋</button></div>
+      <span class="l-pr">${ILS(q*it.price)}</span>`;
+    lines.appendChild(l);
+  });
+  lines.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{addToCart(b.dataset.p)});
+  lines.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{cart[b.dataset.m]--;renderCart()});
+
+  const net=cartTotal();
+  const savedAmt=gross-net;
+  if(cartDiscount && savedAmt>0){
+    discRow.style.display='flex'; clearBtn.style.display='inline-flex';
+    document.getElementById('discountLabel').textContent =
+      `הנחה ${cartDiscount.pct}% ${cartDiscount.target==='all'?'(כל החשבון)':'(פריט)'}`;
+    document.getElementById('discountAmt').textContent = '-'+ILS(savedAmt);
+  } else { discRow.style.display='none'; clearBtn.style.display='none'; }
+
+  document.getElementById('cartTotal').textContent=ILS(net);
+  document.getElementById('cartCount').textContent=count+' פריטים';
+  document.getElementById('payBtn').disabled=false;
+}
+document.getElementById('payBtn').onclick=openPayChoice;
+
+function openPayChoice(){
+  const total=cartTotal();
+  openModal(`<div class="modal-h"><span>תשלום ${ILS(total)}</span><button class="modal-x" onclick="closeModal()">×</button></div>
+    <div class="modal-b"><div class="pay-choice">
+      <button class="btn blue" onclick="doPay('ברקוד')"><span class="emoji">▮▮▮</span>ברקוד</button>
+      <button class="btn green" onclick="doPay('מזומן')"><span class="emoji">💵</span>מזומן</button>
+    </div></div>`);
+}
+/* total AFTER discount */
+function cartTotal(){
+  return Object.keys(cart).reduce((s,iid)=>{
+    const it=findItem(iid); if(!it)return s;
+    let lineSum=it.price*cart[iid];
+    if(cartDiscount && (cartDiscount.target==='all'||cartDiscount.target===iid))
+      lineSum *= (1-cartDiscount.pct/100);
+    return s+lineSum;
+  },0);
+}
+function cartGross(){ return Object.keys(cart).reduce((s,iid)=>{const it=findItem(iid);return s+(it?it.price*cart[iid]:0)},0); }
+
+function doPay(method){
+  const items=Object.keys(cart).filter(k=>cart[k]>0);
+  if(!items.length)return;               // only block a truly empty cart
+  const total=cartTotal();
+  const gross=cartGross();
+  const d=now();
+  const lines=Object.keys(cart).filter(k=>cart[k]>0).map(iid=>{
+    const it=findItem(iid);
+    if(it && !it.generic && it.stock<999) it.stock=Math.max(0,it.stock-cart[iid]);   // reduce catalog stock only
+    return {name:it?it.name:'?',qty:cart[iid],price:it?it.price:0};
+  });
+  const sale={id:id(),date:dateStr(d),time:timeStr(d),ts:d.getTime(),amount:total,gross,
+    discountPct:cartDiscount?cartDiscount.pct:0, discountScope:cartDiscount?cartDiscount.target:'', method,lines};
+  S.sales.push(sale);
+  const snapshot=JSON.parse(JSON.stringify(lines)); // for undo restock
+  cart={}; genItems={}; cartDiscount=null; renderCart();
+
+  openModal(`<div class="modal-b" style="text-align:center;padding:30px 20px">
+     <div class="done-ring"><div class="ck">✓</div></div>
+     <div class="done-txt"><div class="big">התשלום בוצע</div>
+     <div class="amt">${ILS(total)}</div>
+     ${sale.discountPct?`<div class="mini" style="color:var(--danger)">כולל הנחה ${sale.discountPct}% (חסכון ${ILS(gross-total)})</div>`:''}
+     <div class="mini">${sale.date} · ${sale.time} · ${method}</div></div>
+     <button class="btn primary" style="width:100%;margin-top:18px" onclick="closeModal()">חשבון חדש</button></div>`);
+
+  // commit + 10s backup + undo
+  commit('התשלום נרשם · ניתן לבטל', ()=>{
+    S.sales=S.sales.filter(s=>s.id!==sale.id);
+    snapshot.forEach(sl=>{const it=S.items.find(i=>i.name===sl.name); if(it&&it.stock<999)it.stock=Math.max(0,it.stock+sl.qty);});
+    closeModal();
+  });
+}
+
+/* add-item flow (password 2407 / manager password) */
+document.getElementById('editItemsBtn').onclick=()=>{
+  if(document.body.classList.contains('edit-items')){   // turning off — no password needed
+    document.body.classList.remove('edit-items');
+    backBtn.classList.toggle('show', false);
+    return;
+  }
+  requireAuth('editItems','עריכת פריטים', ()=>{
+    closeModal();
+    document.body.classList.add('edit-items');
+    backBtn.classList.add('show');
+  });
+};
+/* general one-off item — price typed at checkout, not saved to catalog */
+/* =========================================================
+   PERMISSION GATE — manager password OR an authorized employee
+   area: 'discount' | 'manager'
+   ========================================================= */
+function requireAuth(area, title, onOk){
+  openModal(`<div class="modal-h"><span>${title} — נדרשת הרשאה</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <p class="sub">הזינו סיסמת מנהל, או סיסמת עובד עם הרשאה.</p>
+     <div class="field"><input id="authPass" type="password" inputmode="numeric" placeholder="סיסמה" autofocus></div>
+     <button class="btn primary" style="width:100%" id="authGo">אישור</button>
+   </div>`);
+  const go=()=>{
+    const p=document.getElementById('authPass').value;
+    if(p===S.password){ onOk({by:'מנהל'}); return; }
+    const emp=S.employees.find(e=>e.pass && e.pass===p && e.perms && e.perms[area]);
+    if(emp){ onOk({by:emp.name}); return; }
+    alert('סיסמה שגויה או ללא הרשאה לאזור זה');
+  };
+  document.getElementById('authGo').onclick=go;
+  document.getElementById('authPass').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+
+/* =========================================================
+   DISCOUNT (requires 'discount' permission)
+   ========================================================= */
+const DISCOUNTS=[5,10,15,20,25,35,50,100];
+document.getElementById('discountBtn').onclick=()=>{
+  if(!Object.keys(cart).filter(k=>cart[k]>0).length){ alert('החשבון ריק'); return; }
+  requireAuth('discount','הנחה', ()=>openDiscountPicker());
+};
+document.getElementById('clearDiscBtn').onclick=()=>{ cartDiscount=null; renderCart(); };
+
+function openDiscountPicker(){
+  const ids=Object.keys(cart).filter(k=>cart[k]>0);
+  const itemBtns=ids.map(iid=>{const it=findItem(iid);return it?`<option value="${iid}">${esc(it.name)}</option>`:''}).join('');
+  openModal(`<div class="modal-h"><span>בחירת הנחה</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>ההנחה חלה על</label>
+       <select id="discTarget"><option value="all">כל החשבון</option>${itemBtns}</select></div>
+     <label>אחוז הנחה</label>
+     <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:6px">
+       ${DISCOUNTS.map(p=>`<button class="btn" data-disc="${p}" style="justify-content:center;padding:14px 4px;font-size:17px">${p}%</button>`).join('')}
+     </div>
+   </div>`);
+  modal.querySelectorAll('[data-disc]').forEach(b=>b.onclick=()=>{
+    const pct=+b.dataset.disc;
+    const target=document.getElementById('discTarget').value;
+    cartDiscount={pct,target};
+    closeModal(); renderCart();
+  });
+}
+
+/* =========================================================
+   EMPLOYEE PRODUCTS — employee picks own name + personal password,
+   then marks items taken (no prices shown). Recorded to S.empTakes,
+   stock decremented, price = after global employee discount.
+   ========================================================= */
+document.getElementById('empTakeBtn').onclick=openEmpTakePicker;
+function openEmpTakePicker(){
+  if(!S.employees.length){ alert('אין עובדים מוגדרים'); return; }
+  const list=S.employees.map(e=>`<button class="btn" data-emp="${e.id}" style="width:100%;justify-content:space-between;margin-bottom:8px">${esc(e.name)} <span>›</span></button>`).join('');
+  openModal(`<div class="modal-h"><span>מוצרי עובד — בחר שם</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">${list}</div>`);
+  modal.querySelectorAll('[data-emp]').forEach(b=>b.onclick=()=>empTakeAuth(b.dataset.emp));
+}
+function empTakeAuth(empId){
+  const emp=S.employees.find(e=>e.id===empId);
+  openModal(`<div class="modal-h"><span>${esc(emp.name)} — סיסמה אישית</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><input id="etPass" type="password" inputmode="numeric" placeholder="הסיסמה שלך" autofocus></div>
+     <button class="btn primary" style="width:100%" id="etGo">כניסה</button>
+   </div>`);
+  const go=()=>{
+    if(document.getElementById('etPass').value===emp.pass){ empTakeMenu(emp); }
+    else alert('סיסמה שגויה');
+  };
+  document.getElementById('etGo').onclick=go;
+  document.getElementById('etPass').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+function empTakeMenu(emp){
+  const disc=S.empDiscountPct||0;
+  const grid=S.items.map(it=>{
+    const out=it.stock<=0;
+    return `<button class="item" data-take="${it.id}" ${out?'disabled style="opacity:.4"':''}
+      style="border:1.5px solid var(--line)"><span class="nm">${esc(it.name)}</span>
+      <span class="mini">מלאי: ${it.stock>=999?'∞':it.stock}</span></button>`;
+  }).join('');
+  openModal(`<div class="modal-h"><span>${esc(emp.name)} · מה לקחת?</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <p class="sub">לחיצה על מוצר רושמת לקיחה אחת. הנחת עובד: ${disc}%.</p>
+     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px">${grid}</div>
+     <div id="etTally" class="mini" style="margin-top:14px;min-height:18px"></div>
+     <button class="btn green" style="width:100%;margin-top:10px" onclick="closeModal()">סיום</button>
+   </div>`);
+  let taken=[];
+  modal.querySelectorAll('[data-take]').forEach(b=>b.onclick=()=>{
+    const it=S.items.find(i=>i.id===b.dataset.take); if(!it||it.stock<=0)return;
+    const d=now();
+    const price=Math.round(it.price*(1-disc/100)*100)/100;
+    const rec={id:id(),empId:emp.id,empName:emp.name,itemName:it.name,
+      date:dateStr(d),time:timeStr(d),ts:d.getTime(),fullPrice:it.price,price};
+    S.empTakes.push(rec);
+    if(it.stock<999) it.stock=Math.max(0,it.stock-1);
+    taken.push(it.name);
+    document.getElementById('etTally').textContent='נרשם: '+taken.join(', ');
+    b.querySelector('.mini').textContent='מלאי: '+(it.stock>=999?'∞':it.stock);
+    commit(); // saves + schedules backup (no undo toast to keep flow simple)
+  });
+}
+
+function promptGeneralItem(){
+  openModal(`<div class="modal-h"><span>פריט כללי</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>שם (אופציונלי)</label><input id="giName" placeholder="פריט כללי"></div>
+     <div class="field"><label>מחיר (₪) — אפשר 0</label><input id="giPrice" type="number" inputmode="decimal" value="0" autofocus></div>
+     <button class="btn primary" style="width:100%" id="giAdd">הוסף לחשבון</button>
+   </div>`);
+  const add=()=>{
+    const name=document.getElementById('giName').value.trim()||'פריט כללי';
+    const price=parseFloat(document.getElementById('giPrice').value);
+    if(isNaN(price)||price<0){alert('מחיר לא תקין');return;}
+    const gid='g_'+id();
+    cart[gid]=1;
+    genItems[gid]={id:gid,name,price,stock:999,generic:true}; // one-off, not in catalog
+    closeModal(); renderCart();
+  };
+  document.getElementById('giAdd').onclick=add;
+  document.getElementById('giPrice').addEventListener('keydown',e=>{if(e.key==='Enter')add();});
+}
+
+function promptAddItem(){
+  openModal(`<div class="modal-h"><span>הוספת פריט — נדרשת סיסמה</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>סיסמה</label><input id="apPass" type="password" inputmode="numeric" placeholder="****"></div>
+     <div id="apForm" style="display:none">
+       <div class="field"><label>שם הפריט</label><input id="apName" placeholder="שם"></div>
+       <div class="two"><div class="field"><label>מחיר (₪) — 0 למוצר חינם</label><input id="apPrice" type="number" inputmode="decimal" value="0"></div>
+       <div class="field"><label>מלאי (∞=999)</label><input id="apStock" type="number" value="999"></div></div>
+       <button class="btn primary" style="width:100%" id="apSave">הוסף פריט</button>
+     </div>
+     <button class="btn primary" style="width:100%" id="apCheck">אישור</button>
+   </div>`);
+  document.getElementById('apCheck').onclick=()=>{
+    const p=document.getElementById('apPass').value;
+    const emp=S.employees.find(e=>e.pass && e.pass===p && e.perms && e.perms.editItems);
+    if(p===S.password || emp){
+      document.getElementById('apForm').style.display='block';
+      document.getElementById('apCheck').style.display='none';
+      document.getElementById('apPass').closest('.field').style.display='none';
+      document.getElementById('apSave').onclick=()=>{
+        const name=document.getElementById('apName').value.trim();
+        const price=parseFloat(document.getElementById('apPrice').value);
+        const stock=parseInt(document.getElementById('apStock').value)||999;
+        if(!name||isNaN(price)||price<0){alert('נא למלא שם ומחיר תקין (0 מותר)');return;}
+        S.items.push({id:id(),name,price,stock});
+        closeModal(); commit();
+      };
+    } else alert('סיסמה שגויה');
+  };
+}
+
+/* =========================================================
+   PART 2 — ATTENDANCE CLOCK
+   ========================================================= */
+const AUTO_END_MS = 10*60*60*1000; // 10 hours
+const clockGrid=document.getElementById('clockGrid');
+
+function renderClock(){
+  clockGrid.innerHTML='';
+  S.employees.forEach(emp=>{
+    const el=document.createElement('div');
+    el.className='emp'+(emp.onShift?' on':'');
+    el.innerHTML=`<div class="en">${esc(emp.name)}</div>
+      <div class="est">${emp.onShift?`<span class="live-timer" data-start="${emp.shiftStart}">…</span>`:'לא במשמרת'}</div>`;
+    el.onclick=()=>openShiftModal(emp.id);
+    clockGrid.appendChild(el);
+  });
+}
+function openShiftModal(empId){
+  const emp=S.employees.find(e=>e.id===empId);
+  openModal(`<div class="modal-h"><span>${esc(emp.name)}</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     ${emp.onShift
+       ? `<p class="sub">במשמרת מאז ${timeStr(new Date(emp.shiftStart))} · <span class="live-timer" data-start="${emp.shiftStart}"></span></p>
+          <button class="btn danger" style="width:100%" onclick="endShift('${empId}')">סיום משמרת</button>`
+       : `<p class="sub">העובד אינו במשמרת</p>
+          <button class="btn green" style="width:100%" onclick="startShift('${empId}')">תחילת משמרת</button>`}
+   </div>`);
+}
+function startShift(empId){
+  const emp=S.employees.find(e=>e.id===empId);
+  emp.onShift=true; emp.shiftStart=Date.now();
+  closeModal();
+  commit('משמרת נפתחה', ()=>{ emp.onShift=false; emp.shiftStart=null; });
+}
+function endShift(empId, auto=false){
+  const emp=S.employees.find(e=>e.id===empId);
+  if(!emp.onShift)return;
+  const start=new Date(emp.shiftStart);
+  const end=new Date(auto? emp.shiftStart+AUTO_END_MS : Date.now());
+  const shift=recordShift(emp,start,end);
+  emp.onShift=false; emp.shiftStart=null;
+  closeModal();
+  commit(auto?'סיום משמרת אוטומטי (10ש׳)':'משמרת נסגרה', ()=>{
+    S.shifts=S.shifts.filter(s=>s.id!==shift.id);
+    emp.onShift=true; emp.shiftStart=start.getTime();
+  });
+}
+function recordShift(emp,start,end){
+  const {reg,sat}=splitHours(start,end);
+  const shift={id:id(),empId:emp.id,empName:emp.name,date:dateStr(start),
+    start:timeStr(start),end:timeStr(end),ts:start.getTime(),hoursReg:reg,hoursSat:sat};
+  S.shifts.push(shift);
+  return shift;
+}
+/* split worked time into weekday hrs vs Shabbat hrs (Sat = day 6) */
+function splitHours(start,end){
+  let reg=0,sat=0; const step=60*1000; // minute resolution
+  for(let t=start.getTime(); t<end.getTime(); t+=step){
+    const day=new Date(t).getDay();
+    if(day===6) sat+=1/60; else reg+=1/60;
+  }
+  return {reg:Math.round(reg*100)/100, sat:Math.round(sat*100)/100};
+}
+/* live timers + auto-end watcher */
+setInterval(()=>{
+  document.querySelectorAll('.live-timer').forEach(el=>{
+    const s=+el.dataset.start; const ms=Date.now()-s;
+    const h=Math.floor(ms/3600000),m=Math.floor(ms%3600000/60000),sec=Math.floor(ms%60000/1000);
+    el.textContent=`${pad(h)}:${pad(m)}:${pad(sec)}`;
+  });
+  // auto close after 10h
+  S.employees.forEach(emp=>{
+    if(emp.onShift && Date.now()-emp.shiftStart>=AUTO_END_MS){ endShift(emp.id,true); }
+  });
+},1000);
+
+/* =========================================================
+   PART 3 — MANAGER AREA
+   ========================================================= */
+function renderManagerGate(){
+  const unlocked=mgrUnlocked;
+  document.getElementById('mgrLocked').style.display=unlocked?'none':'block';
+  document.getElementById('mgrPanel').style.display=unlocked?'block':'none';
+  const pf=document.getElementById('mgrPass'); if(pf) pf.value='';   // never leave the password sitting in the field
+  if(unlocked) renderManager();
+}
+document.getElementById('mgrLogin').onclick=tryMgrLogin;
+document.getElementById('mgrPass').addEventListener('keydown',e=>{if(e.key==='Enter')tryMgrLogin()});
+function tryMgrLogin(){
+  const p=document.getElementById('mgrPass').value;
+  if(p===S.password){ mgrUnlocked=true; renderManagerGate(); }   // manager area = manager password only
+  else alert('סיסמה שגויה');
+}
+document.querySelectorAll('.mgr-tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.mgr-tab').forEach(x=>x.classList.toggle('active',x===t));
+  document.querySelectorAll('.mtab-screen').forEach(s=>s.style.display='none');
+  document.getElementById('m-'+t.dataset.mtab).style.display='block';
+  renderManager();
+});
+
+function renderManager(){
+  // ----- INCOME -----
+  const d=now();
+  const startWeek=new Date(d); startWeek.setDate(d.getDate()-((d.getDay()+7)%7)); startWeek.setHours(0,0,0,0); // Sunday
+  const startMonth=new Date(d.getFullYear(),d.getMonth(),1).getTime();
+  const startDay=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  const sum=(arr)=>arr.reduce((s,x)=>s+x.amount,0);
+  const incDay=S.sales.filter(s=>s.ts>=startDay);
+  const incWk =S.sales.filter(s=>s.ts>=startWeek.getTime());
+  const incMo =S.sales.filter(s=>s.ts>=startMonth);
+  document.getElementById('incToday').textContent=ILS(sum(incDay));
+  document.getElementById('incWeek').textContent =ILS(sum(incWk));
+  document.getElementById('incMonth').textContent=ILS(sum(incMo));
+
+  const paidMonth=S.expenses.filter(e=>e.status==='paid'&&e.ts>=startMonth).reduce((s,e)=>s+e.amount,0);
+  const net=sum(incMo)-paidMonth;
+  const netEl=document.getElementById('netProfit'); netEl.textContent=ILS(net);
+  const card=document.getElementById('netCard'); card.classList.toggle('pos',net>=0); card.classList.toggle('neg',net<0);
+
+  const it=document.getElementById('incTable'); it.innerHTML='';
+  [...S.sales].reverse().forEach(s=>{
+    it.innerHTML+=`<tr><td>${s.date}</td><td>${s.time}</td><td><b>${ILS(s.amount)}</b></td>
+      <td><span class="tag ${s.method==='מזומן'?'cash':'barcode'}">${s.method}</span></td>
+      <td class="mini">${s.lines.map(l=>l.name+'×'+l.qty).join(', ')}</td>
+      <td style="white-space:nowrap"><button class="btn" style="padding:5px 10px" onclick="editSale('${s.id}')">✎</button>
+      <button class="btn danger" style="padding:5px 10px" onclick="delSale('${s.id}')">✕</button></td></tr>`;
+  });
+  if(!S.sales.length) it.innerHTML='<tr><td colspan="6" class="empty">אין חיובים עדיין</td></tr>';
+
+  // ----- EXPENSES -----
+  const exPaid=S.expenses.filter(e=>e.status==='paid'&&e.ts>=startMonth).reduce((s,e)=>s+e.amount,0);
+  const exPend=S.expenses.filter(e=>e.status==='pending').reduce((s,e)=>s+e.amount,0);
+  document.getElementById('exPaidSum').textContent=ILS(exPaid);
+  document.getElementById('exPendSum').textContent=ILS(exPend);
+  const et=document.getElementById('exTable'); et.innerHTML='';
+  [...S.expenses].reverse().forEach(e=>{
+    et.innerHTML+=`<tr><td>${e.date}</td><td>${esc(e.desc)}</td><td>${ILS(e.amount)}</td>
+      <td><span class="tag ${e.status==='paid'?'paid':'pending'}">${e.status==='paid'?'שולם':'ממתין'}</span></td>
+      <td style="white-space:nowrap">${e.status==='pending'?`<button class="btn" style="padding:5px 10px" onclick="markPaid('${e.id}')">סמן כשולם</button>`:''}
+        <button class="btn" style="padding:5px 10px" onclick="editExpense('${e.id}')">✎</button>
+        <button class="btn danger" style="padding:5px 10px" onclick="delExpense('${e.id}')">✕</button></td></tr>`;
+  });
+  if(!S.expenses.length) et.innerHTML='<tr><td colspan="5" class="empty">אין הוצאות</td></tr>';
+
+  // ----- INVENTORY -----
+  renderInventory();
+
+  // ----- PAYROLL -----
+  document.getElementById('rateReg').value=S.rateReg;
+  document.getElementById('rateSat').value=(S.rateReg*1.5).toFixed(2);
+  document.getElementById('empDisc').value=S.empDiscountPct;
+
+  // employee management table (password + permissions)
+  const emt=document.getElementById('empTable'); emt.innerHTML='';
+  S.employees.forEach(e=>{
+    emt.innerHTML+=`<tr>
+      <td><b>${esc(e.name)}</b></td>
+      <td><input value="${esc(e.pass||'')}" style="max-width:110px;padding:6px 8px" onchange="setEmpPass('${e.id}',this.value)"></td>
+      <td style="text-align:center"><input type="checkbox" ${e.perms&&e.perms.discount?'checked':''} onchange="setEmpPerm('${e.id}','discount',this.checked)" style="width:20px;height:20px"></td>
+      <td style="text-align:center"><input type="checkbox" ${e.perms&&e.perms.editItems?'checked':''} onchange="setEmpPerm('${e.id}','editItems',this.checked)" style="width:20px;height:20px"></td>
+      <td><button class="btn danger" style="padding:5px 10px" onclick="delEmp('${e.id}')">✕</button></td></tr>`;
+  });
+  if(!S.employees.length) emt.innerHTML='<tr><td colspan="5" class="empty">אין עובדים</td></tr>';
+
+  // employee takes table
+  const tt=document.getElementById('takeTable'); tt.innerHTML='';
+  [...S.empTakes].reverse().forEach(t=>{
+    tt.innerHTML+=`<tr><td>${esc(t.empName)}</td><td>${esc(t.itemName)}</td><td>${t.date}</td><td>${t.time}</td>
+      <td><b>${ILS(t.price)}</b>${t.fullPrice&&t.fullPrice!==t.price?` <span class="mini">(מלא ${ILS(t.fullPrice)})</span>`:''}</td>
+      <td style="white-space:nowrap"><button class="btn" style="padding:5px 10px" onclick="editTake('${t.id}')">✎</button>
+      <button class="btn danger" style="padding:5px 10px" onclick="delTake('${t.id}')">✕</button></td></tr>`;
+  });
+  if(!S.empTakes.length) tt.innerHTML='<tr><td colspan="6" class="empty">אין לקיחות מתועדות</td></tr>';
+
+  const st=document.getElementById('shiftTable'); st.innerHTML='';
+  [...S.shifts].reverse().forEach(s=>{
+    st.innerHTML+=`<tr><td>${esc(s.empName)}</td><td>${s.date}</td><td>${s.start}</td><td>${s.end}</td>
+      <td>${(s.hoursReg+s.hoursSat).toFixed(2)}${s.hoursSat>0?` <span class="mini">(שבת ${s.hoursSat.toFixed(1)})</span>`:''}</td>
+      <td><button class="btn" style="padding:5px 10px" onclick="editShift('${s.id}')">✎</button>
+      <button class="btn danger" style="padding:5px 10px" onclick="delShift('${s.id}')">✕</button></td></tr>`;
+  });
+  if(!S.shifts.length) st.innerHTML='<tr><td colspan="6" class="empty">אין משמרות מתועדות</td></tr>';
+}
+
+/* employee record actions */
+function setEmpPass(eid,val){ const e=S.employees.find(x=>x.id===eid); if(e){e.pass=val.trim();commit();} }
+function setEmpPerm(eid,area,on){ const e=S.employees.find(x=>x.id===eid); if(e){e.perms=e.perms||{};e.perms[area]=on;commit();} }
+function delEmp(eid){ const removed=S.employees.find(x=>x.id===eid);
+  if(!confirm(`למחוק את "${removed.name}"?`))return;
+  S.employees=S.employees.filter(x=>x.id!==eid); commit('עובד נמחק',()=>{S.employees.push(removed);}); }
+
+/* employee-takes edit/add/delete */
+function delTake(tid){ const removed=S.empTakes.find(x=>x.id===tid);
+  S.empTakes=S.empTakes.filter(x=>x.id!==tid); commit('לקיחה נמחקה',()=>{S.empTakes.push(removed);}); }
+function editTake(tid){
+  const t=S.empTakes.find(x=>x.id===tid); if(!t)return;
+  openTakeForm(t);
+}
+document.getElementById('addTakeBtn') && (document.getElementById('addTakeBtn').onclick=()=>openTakeForm(null));
+function openTakeForm(t){
+  const isNew=!t;
+  const empOpts=S.employees.map(e=>`<option value="${e.id}"${t&&t.empId===e.id?' selected':''}>${esc(e.name)}</option>`).join('');
+  const d=now();
+  openModal(`<div class="modal-h"><span>${isNew?'הוספת לקיחת עובד':'עריכת לקיחה'}</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>עובד</label><select id="tkEmp">${empOpts}</select></div>
+     <div class="field"><label>מוצר</label><input id="tkItem" value="${t?esc(t.itemName):''}" placeholder="שם מוצר"></div>
+     <div class="two"><div class="field"><label>תאריך</label><input id="tkDate" type="date" value="${t?t.date:dateStr(d)}"></div>
+     <div class="field"><label>שעה</label><input id="tkTime" type="time" value="${t?t.time:timeStr(d)}"></div></div>
+     <div class="field"><label>מחיר לניכוי (₪)</label><input id="tkPrice" type="number" inputmode="decimal" value="${t?t.price:0}"></div>
+     <button class="btn primary" style="width:100%" id="tkSave">שמור</button>
+   </div>`);
+  document.getElementById('tkSave').onclick=()=>{
+    const empId=document.getElementById('tkEmp').value;
+    const emp=S.employees.find(e=>e.id===empId);
+    const itemName=document.getElementById('tkItem').value.trim();
+    const date=document.getElementById('tkDate').value, time=document.getElementById('tkTime').value;
+    const price=parseFloat(document.getElementById('tkPrice').value);
+    if(!emp||!itemName||isNaN(price)||price<0){alert('נא למלא ערכים תקינים');return;}
+    if(isNew){
+      const rec={id:id(),empId,empName:emp.name,itemName,date,time,ts:new Date(date+'T'+time).getTime(),fullPrice:price,price};
+      S.empTakes.push(rec);
+      closeModal(); commit('לקיחה נוספה',()=>{S.empTakes=S.empTakes.filter(x=>x.id!==rec.id);});
+    } else {
+      const before=JSON.parse(JSON.stringify(t));
+      Object.assign(t,{empId,empName:emp.name,itemName,date,time,ts:new Date(date+'T'+time).getTime(),price});
+      closeModal(); commit('לקיחה עודכנה',()=>{Object.assign(t,before);});
+    }
+  };
+}
+
+/* expenses actions */
+document.querySelectorAll('[data-exstatus]').forEach(b=>b.onclick=()=>{
+  const desc=document.getElementById('exDesc').value.trim();
+  const amt=parseFloat(document.getElementById('exAmt').value)||0;
+  if(!desc||amt<=0){alert('נא למלא תיאור וסכום');return;}
+  const d=now();
+  const ex={id:id(),date:dateStr(d),ts:d.getTime(),desc,amount:amt,status:b.dataset.exstatus};
+  S.expenses.push(ex);
+  document.getElementById('exDesc').value=''; document.getElementById('exAmt').value='';
+  commit('הוצאה נוספה', ()=>{ S.expenses=S.expenses.filter(x=>x.id!==ex.id); });
+});
+function markPaid(eid){ const e=S.expenses.find(x=>x.id===eid); const prev=e.status; e.status='paid';
+  commit('עודכן לשולם', ()=>{e.status=prev;}); }
+function delExpense(eid){ const removed=S.expenses.find(x=>x.id===eid);
+  S.expenses=S.expenses.filter(x=>x.id!==eid); commit('הוצאה נמחקה',()=>{S.expenses.push(removed);}); }
+
+/* --- edit an expense record --- */
+function editExpense(eid){
+  const e=S.expenses.find(x=>x.id===eid); if(!e)return;
+  openModal(`<div class="modal-h"><span>עריכת הוצאה</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>תאריך</label><input id="edDate" type="date" value="${e.date}"></div>
+     <div class="field"><label>תיאור</label><input id="edDesc" value="${esc(e.desc)}"></div>
+     <div class="field"><label>סכום (₪)</label><input id="edAmt" type="number" inputmode="decimal" value="${e.amount}"></div>
+     <div class="field"><label>סטטוס</label>
+       <select id="edStatus"><option value="paid"${e.status==='paid'?' selected':''}>שולם</option>
+       <option value="pending"${e.status==='pending'?' selected':''}>ממתין</option></select></div>
+     <button class="btn primary" style="width:100%" id="edSave">שמור שינויים</button>
+   </div>`);
+  document.getElementById('edSave').onclick=()=>{
+    const date=document.getElementById('edDate').value;
+    const desc=document.getElementById('edDesc').value.trim();
+    const amount=parseFloat(document.getElementById('edAmt').value);
+    const status=document.getElementById('edStatus').value;
+    if(!date||!desc||isNaN(amount)||amount<0){alert('נא למלא ערכים תקינים');return;}
+    const before=JSON.parse(JSON.stringify(e));
+    Object.assign(e,{date,desc,amount,status,ts:new Date(date+'T00:00').getTime()});
+    closeModal(); commit('הוצאה עודכנה',()=>{Object.assign(e,before);});
+  };
+}
+
+/* --- edit / delete a sale (income) record --- */
+function delSale(sid){ const removed=S.sales.find(x=>x.id===sid);
+  S.sales=S.sales.filter(x=>x.id!==sid); commit('חיוב נמחק',()=>{S.sales.push(removed);}); }
+function editSale(sid){
+  const s=S.sales.find(x=>x.id===sid); if(!s)return;
+  const itemsTxt=s.lines.map(l=>l.name+'×'+l.qty).join(', ');
+  openModal(`<div class="modal-h"><span>עריכת חיוב</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="two"><div class="field"><label>תאריך</label><input id="esaDate" type="date" value="${s.date}"></div>
+     <div class="field"><label>שעה</label><input id="esaTime" type="time" value="${s.time}"></div></div>
+     <div class="field"><label>סכום (₪)</label><input id="esaAmt" type="number" inputmode="decimal" value="${s.amount}"></div>
+     <div class="field"><label>אמצעי תשלום</label>
+       <select id="esaMethod"><option value="מזומן"${s.method==='מזומן'?' selected':''}>מזומן</option>
+       <option value="ברקוד"${s.method==='ברקוד'?' selected':''}>ברקוד</option></select></div>
+     <p class="mini">פריטים: ${esc(itemsTxt)||'—'}</p>
+     <button class="btn primary" style="width:100%;margin-top:8px" id="esaSave">שמור שינויים</button>
+   </div>`);
+  document.getElementById('esaSave').onclick=()=>{
+    const date=document.getElementById('esaDate').value, time=document.getElementById('esaTime').value;
+    const amount=parseFloat(document.getElementById('esaAmt').value);
+    const method=document.getElementById('esaMethod').value;
+    if(!date||!time||isNaN(amount)||amount<0){alert('נא למלא ערכים תקינים');return;}
+    const before=JSON.parse(JSON.stringify(s));
+    Object.assign(s,{date,time,amount,method,ts:new Date(date+'T'+time).getTime()});
+    closeModal(); commit('חיוב עודכן',()=>{Object.assign(s,before);});
+  };
+}
+
+/* =========================================================
+   INVENTORY (manager) — sold totals, current stock, stock edits
+   ========================================================= */
+function soldTotals(){
+  const t={};
+  S.sales.forEach(s=>s.lines.forEach(l=>{ t[l.name]=(t[l.name]||0)+l.qty; }));
+  S.empTakes.forEach(tk=>{ t[tk.itemName]=(t[tk.itemName]||0)+1; });
+  return t;
+}
+function renderInventory(){
+  const tbl=document.getElementById('invTable'); if(!tbl)return;
+  const sold=soldTotals();
+  tbl.innerHTML='';
+  let outCount=0;
+  S.items.forEach(it=>{
+    if(it.stock<=0) outCount++;
+    const stockLabel = it.stock>=999?'∞':it.stock;
+    tbl.innerHTML+=`<tr>
+      <td><b>${esc(it.name)}</b></td>
+      <td>${ILS(it.price)}</td>
+      <td>${sold[it.name]||0}</td>
+      <td style="${it.stock<=0?'color:var(--danger);font-weight:800':''}">${stockLabel}</td>
+      <td style="white-space:nowrap">
+        <button class="btn" style="padding:4px 9px" onclick="bumpStock('${it.id}',-1)">−</button>
+        <button class="btn" style="padding:4px 9px" onclick="bumpStock('${it.id}',1)">＋</button>
+        <button class="btn" style="padding:4px 9px" onclick="setStockPrompt('${it.id}')">כמות…</button>
+        <button class="btn" style="padding:4px 9px" onclick="setInfinite('${it.id}')">∞</button>
+      </td>
+      <td><button class="btn" style="padding:4px 9px" onclick="editItemFull('${it.id}')">✎</button>
+      <button class="btn danger" style="padding:4px 9px" onclick="delItem('${it.id}')">✕</button></td></tr>`;
+  });
+  if(!S.items.length) tbl.innerHTML='<tr><td colspan="6" class="empty">אין מוצרים</td></tr>';
+  document.getElementById('invCount').textContent=S.items.length;
+  document.getElementById('invOut').textContent=outCount;
+}
+function bumpStock(iid,delta){
+  const it=S.items.find(x=>x.id===iid); if(!it)return;
+  if(it.stock>=999 && delta<0) it.stock=100;
+  else if(it.stock>=999) return;
+  else it.stock=Math.max(0,it.stock+delta);
+  commit();
+}
+function setStockPrompt(iid){
+  const it=S.items.find(x=>x.id===iid); if(!it)return;
+  openModal(`<div class="modal-h"><span>עדכון מלאי — ${esc(it.name)}</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>כמות מדויקת במלאי</label><input id="stkVal" type="number" value="${it.stock>=999?'':it.stock}" placeholder="מספר" autofocus></div>
+     <button class="btn primary" style="width:100%" id="stkSave">שמור</button>
+   </div>`);
+  document.getElementById('stkSave').onclick=()=>{
+    const v=parseInt(document.getElementById('stkVal').value);
+    if(isNaN(v)||v<0){alert('כמות לא תקינה');return;}
+    const prev=it.stock; it.stock=v;
+    closeModal(); commit('מלאי עודכן',()=>{it.stock=prev;});
+  };
+}
+function setInfinite(iid){ const it=S.items.find(x=>x.id===iid); if(!it)return; const prev=it.stock; it.stock=999; commit('מלאי בלתי מוגבל',()=>{it.stock=prev;}); }
+function delItem(iid){
+  const it=S.items.find(x=>x.id===iid); if(!it)return;
+  if(!confirm(`למחוק את "${it.name}"?`))return;
+  S.items=S.items.filter(x=>x.id!==iid); commit('מוצר נמחק',()=>{S.items.push(it);});
+}
+function editItemFull(iid){
+  const it=S.items.find(x=>x.id===iid); if(!it)return;
+  openModal(`<div class="modal-h"><span>עריכת מוצר</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>שם</label><input id="eiName" value="${esc(it.name)}"></div>
+     <div class="two"><div class="field"><label>מחיר (₪)</label><input id="eiPrice" type="number" inputmode="decimal" value="${it.price}"></div>
+     <div class="field"><label>מלאי (∞=999)</label><input id="eiStock" type="number" value="${it.stock}"></div></div>
+     <button class="btn primary" style="width:100%" id="eiSave">שמור</button>
+   </div>`);
+  document.getElementById('eiSave').onclick=()=>{
+    const name=document.getElementById('eiName').value.trim();
+    const price=parseFloat(document.getElementById('eiPrice').value);
+    const stock=parseInt(document.getElementById('eiStock').value);
+    if(!name||isNaN(price)||price<0||isNaN(stock)||stock<0){alert('ערכים לא תקינים');return;}
+    const before={name:it.name,price:it.price,stock:it.stock};
+    Object.assign(it,{name,price,stock});
+    closeModal(); commit('מוצר עודכן',()=>{Object.assign(it,before);});
+  };
+}
+document.getElementById('invAdd') && (document.getElementById('invAdd').onclick=()=>{
+  const name=document.getElementById('invNewName').value.trim();
+  const price=parseFloat(document.getElementById('invNewPrice').value);
+  const stock=parseInt(document.getElementById('invNewStock').value);
+  if(!name||isNaN(price)||price<0||isNaN(stock)||stock<0){alert('נא למלא שם, מחיר ומלאי תקינים');return;}
+  const it={id:id(),name,price,stock};
+  S.items.push(it);
+  document.getElementById('invNewName').value=''; document.getElementById('invNewPrice').value='0'; document.getElementById('invNewStock').value='999';
+  commit('מוצר נוסף',()=>{S.items=S.items.filter(x=>x.id!==it.id);});
+});
+
+/* payroll actions */
+document.getElementById('addEmp').onclick=()=>{
+  const name=document.getElementById('newEmpName').value.trim(); if(!name)return;
+  const emp={id:id(),name,onShift:false,shiftStart:null,pass:String(1000+S.employees.length),perms:{discount:false,editItems:false}};
+  S.employees.push(emp);
+  document.getElementById('newEmpName').value='';
+  commit('עובד נוסף',()=>{S.employees=S.employees.filter(e=>e.id!==emp.id);});
+};
+document.getElementById('saveRates').onclick=()=>{
+  const prevR=S.rateReg, prevD=S.empDiscountPct;
+  S.rateReg=parseFloat(document.getElementById('rateReg').value)||0;
+  let d=parseFloat(document.getElementById('empDisc').value); if(isNaN(d)||d<0)d=0; if(d>100)d=100;
+  S.empDiscountPct=d;
+  commit('הגדרות עודכנו',()=>{S.rateReg=prevR;S.empDiscountPct=prevD;});
+};
+document.getElementById('calcPay').onclick=()=>{
+  const from=document.getElementById('payFrom').value, to=document.getElementById('payTo').value;
+  const inRange=dt=>{ if(from && dt<from)return false; if(to && dt>to)return false; return true; };
+  const agg={};
+  S.employees.forEach(e=>agg[e.id]={name:e.name,reg:0,sat:0,ded:0,items:[]});
+  S.shifts.forEach(s=>{
+    if(!inRange(s.date))return; if(!agg[s.empId])agg[s.empId]={name:s.empName,reg:0,sat:0,ded:0,items:[]};
+    agg[s.empId].reg+=s.hoursReg; agg[s.empId].sat+=s.hoursSat;
+  });
+  S.empTakes.forEach(tk=>{
+    if(!inRange(tk.date))return; if(!agg[tk.empId])agg[tk.empId]={name:tk.empName,reg:0,sat:0,ded:0,items:[]};
+    agg[tk.empId].ded+=tk.price; agg[tk.empId].items.push(`${tk.itemName} ${tk.date} ${tk.time} · ${ILS(tk.price)}`);
+  });
+  const t=document.getElementById('payTable'); t.innerHTML='';
+  const rReg=S.rateReg, rSat=S.rateReg*1.5;
+  let shown=0;
+  Object.values(agg).forEach(a=>{
+    if(a.reg===0&&a.sat===0&&a.ded===0)return; shown++;
+    const gross=a.reg*rReg + a.sat*rSat;
+    const net=gross-a.ded;
+    t.innerHTML+=`<tr><td><b>${esc(a.name)}</b></td><td>${a.reg.toFixed(2)}</td><td>${a.sat.toFixed(2)}</td>
+      <td>${ILS(gross)}</td><td style="color:var(--danger)">${a.ded>0?'-'+ILS(a.ded):'—'}</td>
+      <td><b style="color:var(--sale-d)">${ILS(net)}</b></td></tr>`;
+    if(a.items.length) t.innerHTML+=`<tr><td colspan="6" class="mini" style="background:var(--paper)">לקח: ${a.items.map(esc).join(' | ')}</td></tr>`;
+  });
+  if(!shown)t.innerHTML='<tr><td colspan="6" class="empty">אין נתונים בטווח</td></tr>';
+};
+function delShift(sid){ const removed=S.shifts.find(x=>x.id===sid);
+  S.shifts=S.shifts.filter(x=>x.id!==sid); commit('משמרת נמחקה',()=>{S.shifts.push(removed);}); }
+function editShift(sid){
+  const s=S.shifts.find(x=>x.id===sid);
+  openModal(`<div class="modal-h"><span>עריכת משמרת — ${esc(s.empName)}</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>תאריך</label><input id="esDate" type="date" value="${s.date}"></div>
+     <div class="two"><div class="field"><label>כניסה</label><input id="esStart" type="time" value="${s.start}"></div>
+     <div class="field"><label>יציאה</label><input id="esEnd" type="time" value="${s.end}"></div></div>
+     <button class="btn primary" style="width:100%" id="esSave">שמור</button>
+   </div>`);
+  document.getElementById('esSave').onclick=()=>{
+    const date=document.getElementById('esDate').value;
+    const st=document.getElementById('esStart').value, en=document.getElementById('esEnd').value;
+    const startD=new Date(date+'T'+st), endD=new Date(date+'T'+en);
+    if(endD<=startD){alert('שעת יציאה חייבת להיות אחרי הכניסה');return;}
+    const before=JSON.parse(JSON.stringify(s));
+    const {reg,sat}=splitHours(startD,endD);
+    Object.assign(s,{date,start:st,end:en,ts:startD.getTime(),hoursReg:reg,hoursSat:sat});
+    closeModal(); commit('משמרת עודכנה',()=>{Object.assign(s,before);});
+  };
+}
+
+/* settings */
+document.getElementById('saveMgrPass').onclick=()=>{
+  const p=document.getElementById('newMgrPass').value.trim(); if(!p)return;
+  const prev=S.password; S.password=p; document.getElementById('newMgrPass').value='';
+  alert('הסיסמה עודכנה'); commit('סיסמה שונתה',()=>{S.password=prev;});
+};
+document.getElementById('linkBackup').onclick=linkBackupDir;
+document.getElementById('backupChip').onclick=()=>{ if(!backupDir)linkBackupDir(); else writeBackup(); };
+document.getElementById('backupNow').onclick=writeBackup;
+document.getElementById('wipeAll').onclick=()=>{
+  if(confirm('פעולה זו תמחק את כל הנתונים לצמיתות. להמשיך?')){
+    S=defaultState(); persist(); renderAll(); if(backupDir)scheduleBackup();
+  }
+};
+document.getElementById('importBackup').onclick=async()=>{
+  try{
+    const [h]=await window.showOpenFilePicker({types:[{accept:{'application/json':['.json']}}]});
+    const f=await h.getFile(); const j=JSON.parse(await f.text());
+    const loaded=migrate(j.data||j);
+    if(confirm('לטעון את הגיבוי?\nאישור = מיזוג (הוספת נתוני הגיבוי לקיימים).\nביטול = החלפה מלאה.')){
+      S=mergeStates(S, loaded); alert('הגיבוי מוזג עם הנתונים הקיימים');
+    } else {
+      S=loaded; alert('הנתונים הוחלפו בגיבוי');
+    }
+    persist(); renderAll(); if(backupDir)scheduleBackup();
+  }catch(e){ if(e.name!=='AbortError'){alert('טעינה נכשלה'); console.warn(e);} }
+};
+
+/* merge two states without losing records (dedupe by id) */
+function mergeStates(base, add){
+  const out=JSON.parse(JSON.stringify(base));
+  const mergeById=(a,b)=>{ const seen=new Set(a.map(x=>x.id)); (b||[]).forEach(x=>{ if(!seen.has(x.id)) a.push(x); }); };
+  mergeById(out.sales, add.sales);
+  mergeById(out.expenses, add.expenses);
+  mergeById(out.shifts, add.shifts);
+  mergeById(out.empTakes, add.empTakes);
+  mergeById(out.items, add.items);
+  mergeById(out.employees, add.employees);
+  return out;
+}
+
+/* CSV export */
+/* ---- LEAN DAILY REPORT: payments + products sold/stock + employee times, grouped by day ---- */
+/* Build the grouped daily-report CSV. If range={start,end} (Date objects,
+   end exclusive) is given, only days within it are included. */
+function buildReportCSV(range){
+  const inRange = iso => {
+    if(!range) return true;
+    const d=new Date(iso+'T00:00:00');
+    return d>=range.start && d<range.end;
+  };
+  const days = new Set();
+  S.sales.forEach(s=>{ if(inRange(s.date)) days.add(s.date); });
+  S.shifts.forEach(s=>{ if(inRange(s.date)) days.add(s.date); });
+  S.empTakes.forEach(t=>{ if(inRange(t.date)) days.add(t.date); });
+  const sorted=[...days].sort();
+  const rows=[];
+  const line=(...c)=>rows.push(c);
+
+  if(!sorted.length){ line('אין נתונים בטווח זה'); }
+
+  sorted.forEach(day=>{
+    line('=== יום','',xlText(dispDate(day)),'===');
+    const daySales=S.sales.filter(s=>s.date===day);
+    line('תשלומים:'); line('שעה','סכום','אמצעי');
+    let dayTotal=0;
+    daySales.forEach(s=>{ line(xlText(s.time), s.amount, s.method); dayTotal+=s.amount; });
+    line('סה״כ יום', dayTotal);
+    line('');
+    const sold={};
+    daySales.forEach(s=>s.lines.forEach(l=>{ sold[l.name]=(sold[l.name]||0)+l.qty; }));
+    line('מוצרים שנמכרו:'); line('מוצר','כמות שנמכרה','מלאי נותר (נוכחי)');
+    Object.keys(sold).forEach(nm=>{
+      const cat=S.items.find(i=>i.name===nm);
+      const stock = cat ? (cat.stock>=999?'∞':cat.stock) : '—';
+      line(nm, sold[nm], stock);
+    });
+    if(!Object.keys(sold).length) line('—','','');
+    line('');
+    const dayShifts=S.shifts.filter(s=>s.date===day);
+    line('נוכחות עובדים:'); line('עובד','כניסה','יציאה','שעות');
+    dayShifts.forEach(s=>line(s.empName, xlText(s.start), xlText(s.end), (s.hoursReg+s.hoursSat).toFixed(2)));
+    if(!dayShifts.length) line('—','','','');
+    line('');
+    const dayTakes=S.empTakes.filter(t=>t.date===day);
+    if(dayTakes.length){
+      line('מוצרי עובד שנלקחו:'); line('עובד','מוצר','שעה','מחיר');
+      dayTakes.forEach(t=>line(t.empName,t.itemName,xlText(t.time),t.price));
+      line('');
+    }
+    line('');
+  });
+  return '\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+}
+
+document.getElementById('exportDaily').onclick=()=>{
+  if(!S.sales.length && !S.shifts.length && !S.empTakes.length){ alert('אין נתונים לייצוא'); return; }
+  const csv=buildReportCSV(null); // all data
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='daily-report-'+dateStr(now())+'.csv'; a.click();
+};
+
+/* serialize one cell: already-xlText cells (="...") pass through raw; others get quoted */
+function csvCell(c){
+  const s=String(c??'');
+  if(s.startsWith('="')) return s;                 // Excel text-formula, keep as-is
+  return `"${s.replace(/"/g,'""')}"`;
+}
+
+document.getElementById('exportXls').onclick=()=>{
+  let rows=[['תאריך','שעה','סכום','אמצעי','פריטים']];
+  S.sales.forEach(s=>rows.push([xlText(dispDate(s.date)),xlText(s.time),s.amount,s.method,s.lines.map(l=>l.name+'x'+l.qty).join(' | ')]));
+  rows.push([]); rows.push(['הוצאות']); rows.push(['תאריך','תיאור','סכום','סטטוס']);
+  S.expenses.forEach(e=>rows.push([xlText(dispDate(e.date)),e.desc,e.amount,e.status==='paid'?'שולם':'ממתין']));
+  const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='income-report-'+dateStr(now())+'.csv'; a.click();
+};
+
+/* =========================================================
+   RENDER ALL + helpers
+   ========================================================= */
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function renderAll(){
+  renderItems(); renderCart(); renderClock();
+  if(mgrUnlocked && document.getElementById('mgrPanel').style.display!=='none') renderManager();
+}
+renderAll();
+if(!supportsFS){ if(chipTxt)chipTxt.textContent='גיבוי: לא נתמך'; }
+
+/* ---- splash screen wiring ---- */
+document.getElementById('splashEnter').onclick=()=>{
+  document.getElementById('splash').style.display='none';
+};
+document.getElementById('splashBackup').onclick=async()=>{
+  await linkBackupDir();
+};
+</script>
+</body>
+</html>
