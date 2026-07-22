@@ -488,7 +488,7 @@ const xlText = v => `="${String(v??'').replace(/"/g,'""')}"`;
 
 /* ---------- default state ---------- */
 const defaultState = () => ({
-  password:'2407',
+  password:'',   // no default — chosen on first run, stored only in local data (never in code)
   items:[
     {id:id(),name:'קפה',price:12,stock:999},
     {id:id(),name:'שתייה קרה',price:9,stock:40},
@@ -500,9 +500,9 @@ const defaultState = () => ({
   sales:[],       // {id,date,time,ts,amount,method,lines:[{name,qty}],discountPct?}
   expenses:[],    // {id,date,ts,desc,amount,status}
   employees:[     // {id,name,onShift,shiftStart,pass,perms:{discount,editItems}}
-    {id:id(),name:'דנה',onShift:false,shiftStart:null,pass:'1111',perms:{discount:false,editItems:false}},
-    {id:id(),name:'יוסי',onShift:false,shiftStart:null,pass:'2222',perms:{discount:false,editItems:false}},
-    {id:id(),name:'מאיה',onShift:false,shiftStart:null,pass:'3333',perms:{discount:false,editItems:false}},
+    {id:id(),name:'דנה',onShift:false,shiftStart:null,pass:'',perms:{discount:false,editItems:false}},
+    {id:id(),name:'יוסי',onShift:false,shiftStart:null,pass:'',perms:{discount:false,editItems:false}},
+    {id:id(),name:'מאיה',onShift:false,shiftStart:null,pass:'',perms:{discount:false,editItems:false}},
   ],
   shifts:[],      // {id,empId,empName,date,start,end,hoursReg,hoursSat}
   empTakes:[],    // {id,empId,empName,itemName,date,time,ts,fullPrice,price}  (price = after employee discount)
@@ -521,7 +521,7 @@ function migrate(s){
   if(s.empDiscountPct==null) s.empDiscountPct=35;
   if(!s.empTakes) s.empTakes=[];
   (s.employees||[]).forEach((e,i)=>{
-    if(e.pass==null) e.pass=String((i+1)).repeat(4);
+    if(e.pass==null) e.pass='';   // empty = locked until the manager sets a personal password
     if(!e.perms) e.perms={};
     if(e.perms.discount==null) e.perms.discount=false;
     if(e.perms.editItems==null) e.perms.editItems=false;
@@ -831,7 +831,7 @@ function doPay(method){
   });
 }
 
-/* add-item flow (password 2407 / manager password) */
+/* add-item flow (manager password or authorized employee) */
 document.getElementById('editItemsBtn').onclick=()=>{
   if(document.body.classList.contains('edit-items')){   // turning off — no password needed
     document.body.classList.remove('edit-items');
@@ -858,7 +858,7 @@ function requireAuth(area, title, onOk){
    </div>`);
   const go=()=>{
     const p=document.getElementById('authPass').value;
-    if(p===S.password){ onOk({by:'מנהל'}); return; }
+    if(p && p===S.password){ onOk({by:'מנהל'}); return; }
     const emp=S.employees.find(e=>e.pass && e.pass===p && e.perms && e.perms[area]);
     if(emp){ onOk({by:emp.name}); return; }
     alert('סיסמה שגויה או ללא הרשאה לאזור זה');
@@ -918,6 +918,7 @@ function empTakeAuth(empId){
      <button class="btn primary" style="width:100%" id="etGo">כניסה</button>
    </div>`);
   const go=()=>{
+    if(!emp.pass){ alert('לא הוגדרה לך סיסמה אישית — בקשו מהמנהל להגדיר אותה במסך "עובדים ושכר"'); return; }
     if(document.getElementById('etPass').value===emp.pass){ empTakeMenu(emp); }
     else alert('סיסמה שגויה');
   };
@@ -990,7 +991,7 @@ function promptAddItem(){
   document.getElementById('apCheck').onclick=()=>{
     const p=document.getElementById('apPass').value;
     const emp=S.employees.find(e=>e.pass && e.pass===p && e.perms && e.perms.editItems);
-    if(p===S.password || emp){
+    if((p && p===S.password) || emp){
       document.getElementById('apForm').style.display='block';
       document.getElementById('apCheck').style.display='none';
       document.getElementById('apPass').closest('.field').style.display='none';
@@ -1096,9 +1097,29 @@ function renderManagerGate(){
 document.getElementById('mgrLogin').onclick=tryMgrLogin;
 document.getElementById('mgrPass').addEventListener('keydown',e=>{if(e.key==='Enter')tryMgrLogin()});
 function tryMgrLogin(){
+  if(passSetupNeeded()){ openPassSetup(); return; }   // no password yet — must create one first
   const p=document.getElementById('mgrPass').value;
-  if(p===S.password){ mgrUnlocked=true; renderManagerGate(); }   // manager area = manager password only
+  if(p && p===S.password){ mgrUnlocked=true; renderManagerGate(); }   // manager area = manager password only
   else alert('סיסמה שגויה');
+}
+/* first-run manager password setup — the app ships with NO password in the code */
+function passSetupNeeded(){ return !S.password; }
+function openPassSetup(){
+  openModal(`<div class="modal-h"><span>הגדרת סיסמת מנהל</span></div>
+   <div class="modal-b">
+     <p class="sub">ברוכים הבאים! בחרו סיסמת מנהל. היא נשמרת רק בנתונים שלכם (ובסנכרון הפרטי) — לעולם לא בקוד.</p>
+     <div class="field"><label>סיסמה חדשה (4 תווים לפחות)</label><input id="npPass1" type="password" inputmode="numeric" autofocus></div>
+     <div class="field"><label>אימות סיסמה</label><input id="npPass2" type="password" inputmode="numeric"></div>
+     <button class="btn primary" style="width:100%" id="npSave">שמור סיסמה</button>
+   </div>`);
+  document.getElementById('npSave').onclick=()=>{
+    const p1=document.getElementById('npPass1').value.trim(), p2=document.getElementById('npPass2').value.trim();
+    if(p1.length<4){ alert('סיסמה קצרה מדי (4 תווים לפחות)'); return; }
+    if(p1!==p2){ alert('הסיסמאות אינן זהות'); return; }
+    S.password=p1; S.settingsMt=Date.now();
+    closeModal(); commit();
+    alert('סיסמת המנהל נשמרה');
+  };
 }
 document.querySelectorAll('.mgr-tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.mgr-tab').forEach(x=>x.classList.toggle('active',x===t));
@@ -1467,6 +1488,7 @@ function editShift(sid){
 /* settings */
 document.getElementById('saveMgrPass').onclick=()=>{
   const p=document.getElementById('newMgrPass').value.trim(); if(!p)return;
+  if(p.length<4){ alert('סיסמה קצרה מדי (4 תווים לפחות)'); return; }
   const prev=S.password; S.password=p; S.settingsMt=Date.now(); document.getElementById('newMgrPass').value='';
   alert('הסיסמה עודכנה'); commit('סיסמה שונתה',()=>{S.password=prev;S.settingsMt=Date.now();});
 };
@@ -1662,6 +1684,7 @@ if(!supportsFS){ if(chipTxt)chipTxt.textContent='גיבוי: לא נתמך'; }
 /* ---- splash screen wiring ---- */
 document.getElementById('splashEnter').onclick=()=>{
   document.getElementById('splash').style.display='none';
+  if(passSetupNeeded()) openPassSetup();
 };
 document.getElementById('splashBackup').onclick=async()=>{
   await linkBackupDir();
