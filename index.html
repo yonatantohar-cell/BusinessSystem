@@ -210,6 +210,18 @@
   .mini{font-size:12px;color:var(--ink-soft)}
   .hint{background:rgba(184,134,59,.1);border:1px solid rgba(184,134,59,.35);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--brass-d);margin-bottom:14px;line-height:1.5}
 
+  /* ---------- payment-approved toast (global, non-interactive) ---------- */
+  .pay-toast{
+    position:fixed;top:74px;inset-inline:0;margin:auto;width:fit-content;max-width:92%;
+    background:linear-gradient(160deg,var(--sale),var(--sale-d));color:#fff;
+    padding:12px 20px;border-radius:14px;font-weight:800;font-size:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.28);z-index:150;
+    pointer-events:none;               /* completely non-interactive */
+    opacity:0;transform:translateY(-12px);transition:opacity .25s,transform .25s;
+    display:flex;gap:10px;align-items:center;
+  }
+  .pay-toast.show{opacity:1;transform:none}
+
   /* ---------- long-press drag & drop + promos ---------- */
   .item{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
   .promo-tag{font-size:11px;font-weight:800;color:var(--cash);background:rgba(58,110,165,.12);border-radius:999px;padding:2px 8px;align-self:center}
@@ -254,6 +266,7 @@
   <nav id="tabs">
     <div class="tab active" data-screen="pos">קופה</div>
     <div class="tab" data-screen="clock">שעון נוכחות</div>
+    <div class="tab" data-screen="pays">אישורי תשלום</div>
     <div class="tab" data-screen="manager">אזור מנהל</div>
   </nav>
 
@@ -294,6 +307,17 @@
       <h2>שעון נוכחות עובדים</h2>
       <p class="sub">בחרו עובד כדי להתחיל או לסיים משמרת · סיום אוטומטי לאחר 10 שעות רצופות</p>
       <div class="emp-grid" id="clockGrid"></div>
+    </section>
+
+    <!-- ============ BARCODE PAYMENT APPROVALS (Grow) ============ -->
+    <section class="screen" id="pays">
+      <h2>אישורי תשלום בברקוד</h2>
+      <p class="sub">תשלומים שאושרו ב-Grow מופיעים כאן אוטומטית · בכל אישור חדש קופצת התראה בכל מסך</p>
+      <div class="card">
+        <table><thead><tr><th>תאריך</th><th>שעה</th><th>שם המשלם</th><th>סכום</th><th>אסמכתא</th></tr></thead>
+        <tbody id="payLogTable"></tbody></table>
+        <p class="mini" id="payLogState" style="margin-top:8px">לא הוגדר חיבור — באזור מנהל ← הגדרות ← אישורי תשלום (Grow)</p>
+      </div>
     </section>
 
     <!-- ============ MANAGER ============ -->
@@ -461,6 +485,18 @@
             <p class="mini" id="syncState">לא מוגדר</p>
           </div>
           <div class="card" style="max-width:460px">
+            <h3>אישורי תשלום (Grow)</h3>
+            <p class="mini" style="margin-bottom:10px;line-height:1.6">חיבור ל-Web App של Google Apps Script שמקבל את ה-Webhook מ-Grow. האפליקציה בודקת תשלומים חדשים כל כמה שניות, מציגה אותם במסך "אישורי תשלום" ומקפיצה התראה בכל מסך. ההגדרה מסתנכרנת לכל המכשירים. הוראות מלאות ב-README.</p>
+            <div class="field"><label>כתובת ה-Web App (URL)</label><input id="growUrl" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></div>
+            <div class="field"><label>מפתח סוד (KEY — זהה לזה שבסקריפט)</label><input id="growKey" dir="ltr" type="password" autocomplete="off"></div>
+            <div class="row">
+              <button class="btn primary" id="growSave">שמור</button>
+              <button class="btn" id="growTest">בדיקת חיבור</button>
+              <button class="btn danger" id="growOff">נתק</button>
+            </div>
+            <p class="mini" id="growState">לא מוגדר</p>
+          </div>
+          <div class="card" style="max-width:460px">
             <h3>שחזור נתונים</h3>
             <button class="btn" id="importBackup">📂 טען מקובץ גיבוי (JSON)</button>
             <button class="btn danger" id="wipeAll" style="margin-inline-start:8px">מחיקת כל הנתונים</button>
@@ -473,6 +509,9 @@
 
 <!-- ===== overlay / modal ===== -->
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+
+<!-- ===== payment-approved toast (non-interactive, 3s) ===== -->
+<div class="pay-toast" id="payToast" aria-live="polite"></div>
 
 <!-- ===== undo toast ===== -->
 <div class="toast" id="toast">
@@ -519,6 +558,9 @@ const defaultState = () => ({
   empTakes:[],    // {id,empId,empName,itemName,date,time,ts,fullPrice,price}  (price = after employee discount)
   empDiscountPct:35, // global employee discount %
   rateReg:35,
+  growPays:[],    // {id:'gp_'+ref, ts, name, amount, mt} — approved Grow payments
+  growUrl:'',     // Apps Script Web App endpoint
+  growKey:'',     // shared secret, must match the script's KEY
 });
 function id(){return Math.random().toString(36).slice(2,9)}
 
@@ -541,11 +583,14 @@ function migrate(s){
   if(!s.tombstones) s.tombstones=[];
   s.tombstones=s.tombstones.filter(t=>t.ts>Date.now()-180*24*3600*1000);   // prune ancient tombstones
   if(s.settingsMt==null) s.settingsMt=0;
-  ['sales','expenses','shifts','empTakes','items','employees'].forEach(k=>{
+  ['sales','expenses','shifts','empTakes','items','employees','growPays'].forEach(k=>{
     if(!s[k]) s[k]=[];
     s[k].forEach(r=>{ if(r.mt==null) r.mt=r.ts||0; });
   });
   s.items.forEach((it,i)=>{ if(it.pos==null) it.pos=(i+1)*10; });   // home-screen order
+  if(s.growUrl==null) s.growUrl='';
+  if(s.growKey==null) s.growKey='';
+  s.growPays=s.growPays.slice(-300);   // keep the payments log bounded
   return s;
 }
 /* items in the user's chosen home-screen order */
@@ -1614,7 +1659,7 @@ document.getElementById('wipeAll').onclick=()=>{
   if(confirm('פעולה זו תמחק את כל הנתונים לצמיתות'+(syncCfg?' — בכל המכשירים המסונכרנים':'')+'. להמשיך?')){
     // tombstone every existing record so the wipe propagates to synced devices instead of the cloud restoring them
     const oldTombs=S.tombstones||[], ts=Date.now();
-    const allIds=['sales','expenses','shifts','empTakes','items','employees'].flatMap(k=>(S[k]||[]).map(r=>r.id));
+    const allIds=['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(S[k]||[]).map(r=>r.id));
     S=defaultState();
     S.tombstones=[...oldTombs, ...allIds.map(recId=>({id:recId, ts}))];
     S.settingsMt=ts;
@@ -1678,10 +1723,13 @@ function mergeStates(base, add){
   mergeById('empTakes',true);
   mergeById('items');
   mergeById('employees');
+  mergeById('growPays',true);
   if((add.settingsMt||0)>(base.settingsMt||0)){
     out.password=add.password;
     out.rateReg=add.rateReg;
     out.empDiscountPct=add.empDiscountPct;
+    out.growUrl=add.growUrl;
+    out.growKey=add.growKey;
     out.settingsMt=add.settingsMt;
   }
   return out;
@@ -1694,12 +1742,12 @@ function applyImport(loaded){
   } else {
     // full replace: tombstone current records missing from the backup, so the
     // replacement also propagates to synced devices instead of being re-merged back
-    const keep=new Set(['sales','expenses','shifts','empTakes','items','employees'].flatMap(k=>(loaded[k]||[]).map(r=>r.id)));
+    const keep=new Set(['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(loaded[k]||[]).map(r=>r.id)));
     const ts=Date.now();
-    const gone=['sales','expenses','shifts','empTakes','items','employees'].flatMap(k=>(S[k]||[]).map(r=>r.id)).filter(recId=>!keep.has(recId));
+    const gone=['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(S[k]||[]).map(r=>r.id)).filter(recId=>!keep.has(recId));
     loaded.tombstones=[...(loaded.tombstones||[]), ...gone.map(recId=>({id:recId,ts}))];
     loaded.settingsMt=ts;
-    ['sales','expenses','shifts','empTakes','items','employees'].forEach(k=>(loaded[k]||[]).forEach(r=>{ if(!r.mt||r.mt<ts) r.mt=ts; }));
+    ['sales','expenses','shifts','empTakes','items','employees','growPays'].forEach(k=>(loaded[k]||[]).forEach(r=>{ if(!r.mt||r.mt<ts) r.mt=ts; }));
     S=loaded; alert('הנתונים הוחלפו בגיבוי');
   }
   persist(); renderAll(); if(backupDir)scheduleBackup(); scheduleSync();
@@ -1790,7 +1838,7 @@ document.getElementById('exportXls').onclick=()=>{
    ========================================================= */
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function renderAll(){
-  renderItems(); renderCart(); renderClock();
+  renderItems(); renderCart(); renderClock(); renderPays();
   if(mgrUnlocked && document.getElementById('mgrPanel').style.display!=='none') renderManager();
 }
 renderAll();
@@ -2029,6 +2077,127 @@ if(syncCfg){ syncNow(); }
 setInterval(()=>{ if(syncCfg && !document.hidden && navigator.onLine) syncNow(); },60000);
 window.addEventListener('online',()=>{ if(syncCfg) syncNow(); });
 document.addEventListener('visibilitychange',()=>{ if(syncCfg && !document.hidden) syncNow(); });
+
+/* =========================================================
+   GROW PAYMENT APPROVALS
+   Grow → webhook → Google Apps Script Web App (stores a log)
+   → this app polls it every few seconds, records new payments
+   into synced state, renders the approvals screen, and pops a
+   global non-interactive 3-second toast on every new approval.
+   ========================================================= */
+
+/* ---- approvals screen ---- */
+function renderPays(){
+  const tb=document.getElementById('payLogTable'); if(!tb) return;
+  const rows=[...(S.growPays||[])].sort((a,b)=>b.ts-a.ts).slice(0,200);
+  tb.innerHTML=rows.map(p=>{
+    const d=new Date(p.ts);
+    return `<tr><td>${dispDate(dateStr(d))}</td><td>${timeStr(d)}</td>
+      <td><b>${esc(p.name||'—')}</b></td><td><b style="color:var(--sale-d)">${ILS(p.amount)}</b></td>
+      <td class="mini">${esc(String(p.id).replace(/^gp_/,''))}</td></tr>`;
+  }).join('');
+  if(!rows.length) tb.innerHTML='<tr><td colspan="5" class="empty">אין אישורי תשלום עדיין</td></tr>';
+}
+
+/* ---- global toast: buyer + amount, exactly 3s, pointer-events:none ---- */
+const payToastEl=document.getElementById('payToast');
+let payToastQueue=[], payToastBusy=false;
+function showPayToast(name, amount){
+  payToastQueue.push({name,amount});
+  runPayToast();
+}
+function runPayToast(){
+  if(payToastBusy || !payToastQueue.length) return;
+  payToastBusy=true;
+  const p=payToastQueue.shift();
+  payToastEl.textContent=`✓ תשלום אושר · ${p.name||'לקוח'} · ${ILS(p.amount)}`;
+  payToastEl.classList.add('show');
+  setTimeout(()=>{
+    payToastEl.classList.remove('show');
+    setTimeout(()=>{ payToastBusy=false; runPayToast(); },300);   // wait for fade-out, then next in queue
+  },3000);
+}
+
+/* ---- polling ---- */
+let growBusy=false;
+function setGrowState(msg){
+  const a=document.getElementById('growState'); if(a) a.textContent=msg;
+  const b=document.getElementById('payLogState');
+  if(b) b.textContent = S.growUrl ? msg : 'לא הוגדר חיבור — באזור מנהל ← הגדרות ← אישורי תשלום (Grow)';
+}
+function growEndpoint(extra){
+  return S.growUrl+(S.growUrl.includes('?')?'&':'?')+'key='+encodeURIComponent(S.growKey||'')+(extra||'');
+}
+async function growPoll(){
+  if(!S.growUrl || growBusy || !navigator.onLine || document.hidden) return;
+  growBusy=true;
+  try{
+    const maxTs=(S.growPays||[]).reduce((m,p)=>Math.max(m,p.ts||0),0);
+    const res=await fetch(growEndpoint('&since='+maxTs));
+    const j=await res.json();
+    if(!j.ok) throw new Error(j.error||'bad response');
+    if(Array.isArray(j.pays) && j.pays.length){
+      const seen=new Set((S.growPays||[]).map(p=>p.id));
+      let added=false;
+      j.pays.forEach(p=>{
+        const pid='gp_'+p.ref;
+        if(seen.has(pid)) return;
+        seen.add(pid);
+        S.growPays.push({id:pid, ts:p.ts, name:p.name||'', amount:p.amount||0, mt:Date.now()});
+        added=true;
+        if(Date.now()-p.ts < 3*60*1000) showPayToast(p.name, p.amount);   // toast only fresh approvals, not old backlog
+      });
+      if(added){
+        S.growPays=S.growPays.slice(-300);
+        persist(); renderPays(); scheduleSync();
+        if(backupDir) scheduleBackup();
+      }
+    }
+    setGrowState('עודכן '+timeStr(now()));
+  }catch(e){ setGrowState('שגיאת שליפה — בדקו כתובת ומפתח'); }
+  growBusy=false;
+}
+setInterval(growPoll, 8000);
+window.addEventListener('online', growPoll);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) growPoll(); });
+growPoll();
+
+/* ---- settings card wiring ---- */
+function fillGrowForm(){
+  const u=document.getElementById('growUrl'), k=document.getElementById('growKey');
+  if(u){ u.value=S.growUrl||''; k.value=S.growKey||''; }
+  setGrowState(S.growUrl?'מוגדר':'לא מוגדר');
+}
+document.getElementById('growSave').onclick=()=>{
+  const url=document.getElementById('growUrl').value.trim();
+  const key=document.getElementById('growKey').value.trim();
+  if(url && !/^https:\/\/script\.google\.com\/macros\//.test(url)){
+    alert('הכתובת צריכה להיות כתובת Web App של Apps Script (מתחילה ב-https://script.google.com/macros/...)'); return;
+  }
+  S.growUrl=url; S.growKey=key; S.settingsMt=Date.now();
+  commit();
+  setGrowState(url?'נשמר — בודק...':'לא מוגדר');
+  if(url) growPoll();
+};
+document.getElementById('growTest').onclick=async()=>{
+  const url=document.getElementById('growUrl').value.trim();
+  const key=document.getElementById('growKey').value.trim();
+  if(!url){ alert('הזינו כתובת'); return; }
+  setGrowState('בודק חיבור...');
+  try{
+    const res=await fetch(url+(url.includes('?')?'&':'?')+'key='+encodeURIComponent(key)+'&since=0');
+    const j=await res.json();
+    if(j.ok) setGrowState('החיבור תקין ✓ ('+(j.pays?j.pays.length:0)+' תשלומים בלוג)');
+    else setGrowState('השרת ענה אך דחה: '+(j.error||'?')+' — בדקו את המפתח');
+  }catch(e){ setGrowState('החיבור נכשל — בדקו את הכתובת'); }
+};
+document.getElementById('growOff').onclick=()=>{
+  if(!S.growUrl) return;
+  if(!confirm('לנתק את חיבור אישורי התשלום בכל המכשירים?')) return;
+  S.growUrl=''; S.growKey=''; S.settingsMt=Date.now();
+  commit(); fillGrowForm();
+};
+fillGrowForm();
 </script>
 </body>
 </html>
