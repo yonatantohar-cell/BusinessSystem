@@ -1,5 +1,5 @@
 /* service worker — offline shell for קופה קיוסק בריכה */
-const CACHE = 'kupa-shell-v1';
+const CACHE = 'kupa-shell-v2';
 const ASSETS = [
   './',
   'index.html',
