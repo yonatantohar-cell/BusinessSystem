@@ -46,8 +46,15 @@ async function loadMenu() {
   let data = null;
   try { data = JSON.parse(txt); } catch (e) { /* not JSON — diagnosed below */ }
   if (!data) {
-    // Apps Script served HTML: a Google sign-in/consent page or an error page.
+    // Apps Script served HTML: a Google sign-in/consent page, a dead URL, or an error page.
     const login = /accounts\.google\.com|ServiceLogin|Sign in|התחברות/i.test(txt);
+    if (res.status === 404) {
+      // the deployment behind this link no longer exists (a new deployment was created,
+      // so the id in /s/…/exec changed) or the address carries a stray trailing slash
+      menuError('קישור התפריט מצביע על כתובת שאינה קיימת יותר.<br>יש לסרוק מחדש את קוד ה-QR / לבקש קישור מעודכן מבעל העסק.',
+        'HTTP 404');
+      return;
+    }
     menuError(login
       ? 'שרת התפריט מבקש התחברות לחשבון Google.<br>על בעל העסק להגדיר בפריסת ה-Apps Script: <b>Who has access: Anyone</b>, ולהשתמש בכתובת <b>/exec</b>.'
       : 'שרת התפריט החזיר תשובה לא תקינה.<br>על בעל העסק לבדוק את פריסת ה-Apps Script.',
