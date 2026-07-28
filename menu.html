@@ -153,7 +153,8 @@
       <h2>ההזמנה שלי <button class="x" id="cartClose" aria-label="סגירה">×</button></h2>
       <div id="cartLines"></div>
       <div class="total-row"><span>סה״כ</span><span id="cartTotal">₪0</span></div>
-      <div class="field"><label>שם (יופיע על ההזמנה)</label><input id="custName" autocomplete="name" placeholder="השם שלך"></div>
+      <div class="field"><label>שם מלא <span style="color:var(--danger)">*</span></label><input id="custName" autocomplete="name" placeholder="השם שלך" required></div>
+      <div class="field"><label>אימייל <span style="color:var(--danger)">*</span> (לקבלה)</label><input id="custEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required></div>
       <div class="field"><label>טלפון (אופציונלי)</label><input id="custPhone" autocomplete="tel" inputmode="tel" placeholder="050..."></div>
       <button class="bigbtn" id="payOnlineBtn">💳 תשלום מקוון</button>
       <button class="bigbtn brass" id="payCounterBtn">🏪 תשלום בקופה</button>

@@ -149,7 +149,7 @@ function renderCartBits() {
   $('payCounterBtn').disabled = n === 0;
   $('payOnlineBtn').style.display = online ? '' : 'none';
   $('checkoutNote').textContent = online
-    ? 'תשלום מקוון מתבצע בדף מאובטח; בתשלום בקופה ההזמנה נשלחת למטבח ומשלמים באיסוף.'
+    ? 'תשלום מקוון בדף מאובטח (מינימום ' + MIN_ONLINE + ' ₪); בתשלום בקופה אין מינימום — ההזמנה נשלחת למטבח ומשלמים באיסוף.'
     : 'ההזמנה תישלח למטבח — התשלום בקופה בעת האיסוף.';
 }
 
@@ -158,9 +158,23 @@ $('cartClose').onclick = () => $('cartSheet').classList.remove('show');
 $('cartSheet').onclick = e => { if (e.target === $('cartSheet')) $('cartSheet').classList.remove('show'); };
 
 /* ---------- checkout ---------- */
+function validContact() {
+  const name = $('custName').value.trim();
+  const email = $('custEmail').value.trim();
+  if (!name) { alert('נא למלא שם מלא'); $('custName').focus(); return null; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { alert('נא למלא כתובת אימייל תקינה'); $('custEmail').focus(); return null; }
+  return { name, email, phone: $('custPhone').value.trim() };
+}
+
 async function placeOrder(payMethod) {
   const items = cartItems().map(l => ({ name: l.it.name, qty: l.qty, price: l.it.price }));
   if (!items.length) return;
+  if (payMethod === 'online' && cartTotal() < MIN_ONLINE) {
+    alert('מינימום לקנייה באופן מקוון ' + MIN_ONLINE + ' שקלים');
+    return;
+  }
+  const contact = validContact();
+  if (!contact) return;
   const btn = payMethod === 'online' ? $('payOnlineBtn') : $('payCounterBtn');
   const label = btn.textContent;
   $('payOnlineBtn').disabled = $('payCounterBtn').disabled = true;
@@ -172,15 +186,12 @@ async function placeOrder(payMethod) {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         items, total: cartTotal(), payMethod,
-        name: $('custName').value.trim(), phone: $('custPhone').value.trim()
+        name: contact.name, email: contact.email, phone: contact.phone
       })
     });
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || 'order failed');
-    currentOrder = {
-      order: j.order, total: cartTotal(),
-      name: $('custName').value.trim(), phone: $('custPhone').value.trim()
-    };
+    currentOrder = { order: j.order, total: cartTotal(), ...contact };
     $('cartSheet').classList.remove('show');
     if (payMethod === 'online') openPayment(); else showConfirm(false);
   } catch (e) {
@@ -198,7 +209,7 @@ $('payCounterBtn').onclick = () => placeOrder('counter');
 
    MENU.config.payParams is the query template appended to it, so the
    parameter names can be corrected without touching code. Placeholders:
-     {total} {order} {name} {phone}
+     {total} {order} {name} {email} {phone}
    Default: amount={total}&description=הזמנה {order}&name={name}&phone={phone}
 
    NOTE: a short link may drop query parameters on redirect, and Morning may
@@ -210,7 +221,8 @@ $('payCounterBtn').onclick = () => placeOrder('counter');
    API upgrade path: if you move to Morning's API, create the payment request
    inside the Apps Script (credentials stay server-side) and return its URL,
    then use that URL here instead of building one. */
-const DEFAULT_PAY_PARAMS = 'amount={total}&description=הזמנה {order}&name={name}&phone={phone}';
+const MIN_ONLINE = 30;   // minimum cart total for online payment (counter has no minimum)
+const DEFAULT_PAY_PARAMS = 'amount={total}&description=הזמנה {order}&name={name}&email={email}&phone={phone}';
 function payUrlFor(order) {
   const base = MENU.config.payUrl;
   const tpl = (MENU.config.payParams != null ? MENU.config.payParams : DEFAULT_PAY_PARAMS).trim();
@@ -219,6 +231,7 @@ function payUrlFor(order) {
     .replace(/\{total\}/g, encodeURIComponent(order.total))
     .replace(/\{order\}/g, encodeURIComponent(order.order))
     .replace(/\{name\}/g, encodeURIComponent(order.name || ''))
+    .replace(/\{email\}/g, encodeURIComponent(order.email || ''))
     .replace(/\{phone\}/g, encodeURIComponent(order.phone || ''));
   return base + (base.includes('?') ? '&' : '?') + q;
 }
@@ -270,10 +283,10 @@ function paymentDone() {
 
 /* ---------- confirmation ---------- */
 function showConfirm(paid) {
-  $('confirmTitle').textContent = paid ? 'התשלום התקבל — ההזמנה בהכנה!' : 'ההזמנה התקבלה!';
+  $('confirmTitle').textContent = paid ? 'תודה! ההזמנה נקלטה' : 'ההזמנה התקבלה!';
   $('confirmNum').textContent = '#' + currentOrder.order;
   $('confirmMsg').textContent = paid
-    ? 'שמרו את מספר ההזמנה — נקרא לכם כשהיא מוכנה.'
+    ? 'ההזמנה תיכנס להכנה מיד עם אישור התשלום. שמרו את מספר ההזמנה.'
     : 'ההזמנה ממתינה לתשלום — גשו לקופה, אמרו את מספר ההזמנה, וההכנה תתחיל.';
   $('confirm').classList.add('show');
   cart = {}; renderMenu();
