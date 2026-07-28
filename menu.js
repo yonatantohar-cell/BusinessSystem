@@ -54,7 +54,13 @@ async function loadMenu() {
       'HTTP ' + res.status);
     return;
   }
-  if (data.ok === false) { menuError('שרת התפריט דחה את הבקשה.', data.error); return; }
+  if (data.ok === false) {
+    // the new backend answers action=menu publicly; "bad key" can only come from the old v1 script
+    menuError(data.error === 'bad key'
+      ? 'בשרת של העסק פועלת גרסה ישנה של הסקריפט.<br>על בעל העסק לעדכן את קוד ה-Apps Script ולפרוס גרסה חדשה.'
+      : 'שרת התפריט דחה את הבקשה.', data.error);
+    return;
+  }
   if (!Array.isArray(data.items)) { menuError('התפריט טרם פורסם.<br>על בעל העסק ללחוץ "פרסום התפריט" באזור המנהל.'); return; }
   MENU = data;
   MENU.config = MENU.config || {};

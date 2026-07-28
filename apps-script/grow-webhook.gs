@@ -16,6 +16,7 @@
  */
 
 const KEY = 'CHANGE_ME_TO_A_LONG_RANDOM_SECRET';
+const VERSION = 2;           // bumped with the script; the app checks this to catch a stale deployment
 const MAX_ROWS = 500;        // payments log cap
 const MAX_ORDER_ROWS = 400;  // orders log cap
 const ORDERS_FEED_HOURS = 48;
@@ -115,6 +116,10 @@ function doGet(e) {
     const p = (e && e.parameter) || {};
     const action = String(p.action || '').toLowerCase();
 
+    if (action === 'ping') {   // public: proves which script version is actually deployed
+      return json_({ ok: true, version: VERSION });
+    }
+
     if (action === 'menu') {   // public: the published digital menu
       return ContentService.createTextOutput(menuFile_().getBlob().getDataAsString())
         .setMimeType(ContentService.MimeType.JSON);
@@ -164,8 +169,10 @@ function doPost(e) {
     if ((p0.key || '') !== KEY) return json_({ ok: false, error: 'bad key' });
 
     if (action === 'savemenu') {   // admin publishes the menu
-      menuFile_().setContent(JSON.stringify(body.menu || {}));
-      return json_({ ok: true });
+      const menu = body.menu || {};
+      menuFile_().setContent(JSON.stringify(menu));
+      // echo version + count so the app can prove the new code handled this, not an old deployment
+      return json_({ ok: true, version: VERSION, items: (menu.items || []).length });
     }
 
     // default: Grow webhook — log the payment, then try to mark a matching order paid

@@ -2353,6 +2353,8 @@ if(!menuDraft) menuDraft={config:{name:'Incanto',payUrl:''}, items:[]};
 function saveMenuDraft(){ localStorage.setItem(MENU_DRAFT_KEY, JSON.stringify(menuDraft)); }
 function setMenuState(t){ const el=document.getElementById('menuState'); if(el) el.textContent=t; }
 
+/* the public endpoint customers use — no key, no query leftovers */
+function customerEndpoint(){ return (S.growUrl||'').trim().split(/[?#]/)[0]; }
 function customerLink(){
   if(!S.growUrl) return '';
   const base=location.protocol.startsWith('http') ? new URL('menu.html', location.href).href
@@ -2456,7 +2458,18 @@ document.getElementById('menuPublish').onclick=async()=>{
     });
     const j=await res.json();
     if(!j.ok) throw new Error(j.error||'?');
-    setMenuState('פורסם ✓ '+timeStr(now())+' — הלקוחות רואים את הגרסה הזו');
+    // an old deployment answers ok:true to any keyed POST (it treats it as a webhook),
+    // so never trust ok alone — require the version echo, then read the menu back
+    if(!j.version){
+      setMenuState('❌ בשרת פועלת גרסה ישנה של הסקריפט — התפריט לא נשמר. עדכנו את הקוד ופרסו גרסה חדשה (ראו README)');
+      return;
+    }
+    const back=await (await fetch(customerEndpoint()+'?action=menu')).json();
+    if(!Array.isArray(back.items) || back.items.length!==menuDraft.items.length){
+      setMenuState('❌ הפרסום לא אומת — השרת מחזיר תפריט אחר. בדקו שהפריסה מעודכנת');
+      return;
+    }
+    setMenuState('פורסם ואומת ✓ '+timeStr(now())+' — הלקוחות רואים '+back.items.length+' מנות');
   }catch(e){ setMenuState('הפרסום נכשל — בדקו חיבור ומפתח'); }
 };
 document.getElementById('menuReload').onclick=async()=>{
@@ -2475,10 +2488,19 @@ document.getElementById('menuReload').onclick=async()=>{
    no key, no login — so configuration problems show up here, not in the field */
 document.getElementById('menuCheck').onclick=async()=>{
   if(!S.growUrl){ alert('אין חיבור מוגדר'); return; }
-  const endpoint=S.growUrl.trim().split(/[?#]/)[0];
+  const endpoint=customerEndpoint();
   if(/\/dev$/.test(endpoint)){ setMenuState('❌ הכתובת היא /dev (כתובת בדיקה שדורשת התחברות) — יש להשתמש ב-/exec'); return; }
   setMenuState('בודק כמו לקוח...');
   try{
+    // version handshake first: proves which code the URL actually serves
+    const pingTxt=await (await fetch(endpoint+'?action=ping')).text();
+    let ping=null; try{ ping=JSON.parse(pingTxt); }catch(e){}
+    if(ping && ping.ok===false && ping.error==='bad key'){
+      setMenuState('❌ בכתובת הזו פועלת גרסה ישנה של הסקריפט (v1). עדכנו את הקוד ב-Apps Script, שמרו, ופרסו גרסה חדשה לאותה פריסה'); return;
+    }
+    if(!ping || !ping.version){
+      setMenuState('❌ הכתובת לא מחזירה זיהוי גרסה — ככל הנראה פריסה ישנה או כתובת של פריסה אחרת'); return;
+    }
     const res=await fetch(endpoint+'?action=menu');
     const txt=await res.text();
     let data=null; try{ data=JSON.parse(txt); }catch(e){}
