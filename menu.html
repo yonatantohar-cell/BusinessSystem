@@ -155,7 +155,8 @@
       <div class="total-row"><span>סה״כ</span><span id="cartTotal">₪0</span></div>
       <div class="field"><label>שם (יופיע על ההזמנה)</label><input id="custName" autocomplete="name" placeholder="השם שלך"></div>
       <div class="field"><label>טלפון (אופציונלי)</label><input id="custPhone" autocomplete="tel" inputmode="tel" placeholder="050..."></div>
-      <button class="bigbtn" id="checkoutBtn">להזמנה ולתשלום</button>
+      <button class="bigbtn" id="payOnlineBtn">💳 תשלום מקוון</button>
+      <button class="bigbtn brass" id="payCounterBtn">🏪 תשלום בקופה</button>
       <p class="mini" id="checkoutNote" style="margin-top:10px"></p>
     </div>
   </div>
@@ -167,8 +168,11 @@
       <b>תשלום מאובטח · הזמנה <span id="payOrderNo"></span></b>
       <b id="payAmount" style="color:var(--sale-d)"></b>
     </div>
-    <iframe id="payFrame" title="דף תשלום Grow"></iframe>
-    <div class="paywait">ממתין לאישור התשלום<span class="spin"></span> האישור יופיע כאן אוטומטית · <button id="payExternal" style="border:none;background:none;color:var(--brass-d);font-weight:800;text-decoration:underline;font-size:13px">לא נטען? פתיחה בחלון נפרד</button></div>
+    <iframe id="payFrame" title="דף תשלום"></iframe>
+    <div class="paywait">
+      <button class="bigbtn" id="payDone" style="margin:0 0 8px">✓ סיימתי לשלם</button>
+      <button id="payExternal" style="border:none;background:none;color:var(--brass-d);font-weight:800;text-decoration:underline;font-size:13px">דף התשלום לא נטען? פתיחה בחלון חדש</button>
+    </div>
   </div>
 
   <!-- confirmation -->
