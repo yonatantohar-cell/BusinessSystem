@@ -4,6 +4,7 @@
  *
  *   doPost (webhook from Grow)      — logs approved payments, auto-matches pending orders
  *   doPost ?action=neworder         — customer places an order (public), returns order number
+ *   doPost ?action=confirmpaid      — customer finished the online payment (public)
  *   doPost ?action=savemenu&key=..  — admin publishes the digital menu (stored in Drive)
  *   doGet  ?action=menu             — customers fetch the published menu (public)
  *   doGet  ?action=orderstatus      — customer polls one order's paid status (public)
@@ -16,7 +17,7 @@
  */
 
 const KEY = 'CHANGE_ME_TO_A_LONG_RANDOM_SECRET';
-const VERSION = 3;           // bumped with the script; the app checks this to catch a stale deployment
+const VERSION = 4;           // bumped with the script; the app checks this to catch a stale deployment
 const MAX_ROWS = 500;        // payments log cap
 const MAX_ORDER_ROWS = 400;  // orders log cap
 const ORDERS_FEED_HOURS = 48;
@@ -44,7 +45,9 @@ function paymentsSheet_() {
   const ss = ss_();
   const named = ss.getSheetByName('payments');
   if (named) return named;
-  const others = ss.getSheets().filter(function (s) { return s.getName() !== 'orders'; });
+  const others = ss.getSheets().filter(function (s) {
+    return s.getName() !== 'orders' && s.getName() !== 'menu';
+  });
   return others[0] || ss.getSheets()[0];
 }
 
@@ -53,7 +56,7 @@ function ordersSheet_() {
   let sh = ss.getSheetByName('orders');
   if (!sh) {
     sh = ss.insertSheet('orders', ss.getNumSheets());   // always appended last
-    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref']);
+    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref', 'method']);
   }
   return sh;
 }
@@ -204,6 +207,15 @@ function doPost(e) {
 
     if (action === 'neworder') return newOrder_(body);          // public
 
+    if (action === 'confirmpaid') {   // public: customer finished the online payment page
+      const t = findOrderRow_(String(body.order || ''));
+      if (!t) return json_({ ok: false, error: 'not found' });
+      const sh = ordersSheet_();
+      sh.getRange(t.row, 7).setValue(1);
+      if (!String(sh.getRange(t.row, 8).getValue())) sh.getRange(t.row, 8).setValue('online');
+      return json_({ ok: true, order: t.order });
+    }
+
     if ((p0.key || '') !== KEY) return json_({ ok: false, error: 'bad key' });
 
     if (action === 'savemenu') {   // admin publishes the menu
@@ -254,8 +266,9 @@ function newOrder_(body) {
     props_().setProperty('ORDER_SEQ', String(n));
     orderNo = String(n);
     const sh = ordersSheet_();
+    const method = String(body.payMethod || 'counter') === 'online' ? 'online' : 'counter';
     sh.appendRow([Date.now(), orderNo, String(body.name || '').slice(0, 60),
-      String(body.phone || '').slice(0, 30), itemsTxt, total, 0, '']);
+      String(body.phone || '').slice(0, 30), itemsTxt, total, 0, '', method]);
     const extra = sh.getLastRow() - 1 - MAX_ORDER_ROWS;
     if (extra > 0) sh.deleteRows(2, extra);
   } finally {
@@ -267,7 +280,7 @@ function newOrder_(body) {
 function ordersRows_() {
   const sh = ordersSheet_();
   const last = sh.getLastRow();
-  return last > 1 ? sh.getRange(2, 1, last - 1, 8).getValues() : [];
+  return last > 1 ? sh.getRange(2, 1, last - 1, 9).getValues() : [];
 }
 
 function listOrders_() {
@@ -276,7 +289,8 @@ function listOrders_() {
     .filter(function (r) { return Number(r[0]) > cutoff; })
     .map(function (r) {
       return { created: Number(r[0]), order: String(r[1]), name: String(r[2]), phone: String(r[3]),
-               items: String(r[4]), total: Number(r[5]), paid: Number(r[6]) ? 1 : 0, payref: String(r[7]) };
+               items: String(r[4]), total: Number(r[5]), paid: Number(r[6]) ? 1 : 0, payref: String(r[7]),
+               method: String(r[8] || 'counter') };
     })
     .slice(-150);
 }

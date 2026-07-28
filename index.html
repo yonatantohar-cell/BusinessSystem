@@ -245,6 +245,9 @@
     <h1 style="font-size:26px;margin-bottom:6px">קופה קיוסק בריכה</h1>
     <p style="color:#3c534d;font-size:15px;margin-bottom:26px">מערכת ניהול עסק מקומית</p>
     <button class="btn green" id="splashEnter" style="width:100%;padding:16px;font-size:19px;margin-bottom:12px">כניסה למערכת</button>
+    <div id="splashError" style="display:none;background:#fdecea;border:1.5px solid #a8412e;color:#a8412e;
+      border-radius:12px;padding:12px 14px;font-size:13px;text-align:start;margin-bottom:12px;line-height:1.6"></div>
+    <button class="btn" id="hardRefresh" style="width:100%;padding:13px;font-size:15px;margin-bottom:12px">🔄 רענון מלא (ניקוי מטמון)</button>
     <button class="btn primary" id="splashBackup" style="width:100%;padding:16px;font-size:17px">🔗 חיבור תיקיית גיבוי</button>
     <p id="splashBackupState" class="mini" style="margin-top:12px;color:#3c534d">גיבוי לא מחובר</p>
     <p class="mini" style="margin-top:20px;color:#8f6725;line-height:1.6">הגיבוי נשמר אוטומטית לתיקייה שתבחר, בתוך תיקיית שבוע נפרדת. פועל ב-Chrome/Edge במחשב, גם ללא אינטרנט.</p>
@@ -481,7 +484,11 @@
             </div>
             <div class="two" style="max-width:640px">
               <div class="field"><label>שם העסק (יוצג ללקוחות)</label><input id="menuBizName" placeholder="Incanto"></div>
-              <div class="field"><label>כתובת דף תשלום Grow (ריק = תשלום בקופה)</label><input id="menuPayUrl" dir="ltr" placeholder="https://..."></div>
+              <div class="field"><label>קישור תשלום מקוון — Morning (ריק = תשלום בקופה בלבד)</label><input id="menuPayUrl" dir="ltr" placeholder="https://mrng.to/XXXXXXXX"></div>
+            </div>
+            <div class="field" style="max-width:640px"><label>פרמטרים לקישור התשלום (מילוי אוטומטי)</label>
+              <input id="menuPayParams" dir="ltr" placeholder="amount={total}&description=הזמנה {order}&name={name}&phone={phone}">
+              <p class="mini" style="margin-top:6px">מציינים אילו שדות למלא אוטומטית בדף התשלום. משתנים: <code>{total}</code> סכום · <code>{order}</code> מספר הזמנה · <code>{name}</code> שם · <code>{phone}</code> טלפון. אם Morning מתעלם מהם — שנו כאן את שמות השדות לפי מה שהקישור הארוך של Morning מצפה לו, או השאירו ריק והלקוח ימלא ידנית.</p>
             </div>
           </div>
           <div class="card">
@@ -574,6 +581,26 @@
    מערכת ניהול עסק — Single File
    LocalStorage + File System Access API auto-backup
    ========================================================= */
+/* ---------- crash visibility ----------
+   A single failing line used to abort the rest of this script, leaving the
+   splash button wired but everything after it dead — a silent freeze. Now any
+   error is shown on the splash, and a full cache reset is always one tap away. */
+window.addEventListener('error', e => showBootError((e.error && e.error.message) || e.message, e.filename, e.lineno));
+window.addEventListener('unhandledrejection', e => showBootError('Promise: ' + ((e.reason && e.reason.message) || e.reason)));
+function showBootError(msg, file, line){
+  const el = document.getElementById('splashError');
+  if(!el) return;
+  el.style.display = 'block';
+  el.textContent = 'שגיאה בטעינה: ' + msg + (line ? ' (שורה ' + line + ')' : '') +
+    ' — נסו "רענון מלא". אם זה חוזר, שלחו את הטקסט הזה למפתח.';
+  const sp = document.getElementById('splash');
+  if(sp) sp.style.display = 'grid';   // never leave the user on a blank/frozen screen
+}
+/* run an init step in isolation so one failure cannot kill the rest of the app */
+function boot(label, fn){
+  try{ fn(); }catch(e){ console.error('init failed:', label, e); showBootError(label + ': ' + e.message); }
+}
+
 const LS_KEY = 'biz_system_v1';
 const ILS = n => '₪' + (Math.round(n*100)/100).toLocaleString('he-IL');
 const now = () => new Date();
@@ -1892,13 +1919,30 @@ function renderAll(){
   renderItems(); renderCart(); renderClock(); renderPays(); renderOrders();
   if(mgrUnlocked && document.getElementById('mgrPanel').style.display!=='none') renderManager();
 }
-renderAll();
+boot('renderAll', renderAll);
 if(!supportsFS){ if(chipTxt)chipTxt.textContent='גיבוי: לא נתמך'; }
 
 /* ---- splash screen wiring ---- */
 document.getElementById('splashEnter').onclick=()=>{
   document.getElementById('splash').style.display='none';
-  if(passSetupNeeded()) openPassSetup();
+  try{ if(passSetupNeeded()) openPassSetup(); }catch(e){ showBootError(e.message); }
+};
+/* escape hatch for a stuck cached build: drop every cache + service worker and reload fresh.
+   Business data lives in LocalStorage and the cloud, so nothing is lost. */
+document.getElementById('hardRefresh').onclick=async()=>{
+  const btn=document.getElementById('hardRefresh');
+  btn.textContent='מנקה...';
+  try{
+    if('serviceWorker' in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if(window.caches){
+      const keys=await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+  }catch(e){ /* proceed to reload regardless */ }
+  location.replace(location.pathname+'?fresh='+Date.now());
 };
 document.getElementById('splashBackup').onclick=async()=>{
   await linkBackupDir();
@@ -2122,8 +2166,7 @@ syncChip.onclick=()=>{
 };
 
 /* ---- sync triggers ---- */
-setSyncStatus(syncCfg?'offline':'off');
-fillSyncForm();
+boot('sync-init', ()=>{ setSyncStatus(syncCfg?'offline':'off'); fillSyncForm(); });
 if(syncCfg){ syncNow(); }
 setInterval(()=>{ if(syncCfg && !document.hidden && navigator.onLine) syncNow(); },60000);
 window.addEventListener('online',()=>{ if(syncCfg) syncNow(); });
@@ -2213,7 +2256,7 @@ async function growPoll(){
 setInterval(growPoll, 8000);
 window.addEventListener('online', growPoll);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) growPoll(); });
-growPoll();
+boot('growPoll', growPoll);
 
 /* ---- settings card wiring ---- */
 function fillGrowForm(){
@@ -2257,7 +2300,7 @@ document.getElementById('growOff').onclick=()=>{
   S.growUrl=''; S.growKey=''; S.settingsMt=Date.now();
   commit(); fillGrowForm();
 };
-fillGrowForm();
+boot('fillGrowForm', fillGrowForm);
 
 /* =========================================================
    SELF-ORDERING — incoming orders from the digital menu
@@ -2265,7 +2308,7 @@ fillGrowForm();
    the orders feed, toasts new/paid orders, and tracks prep
    status (synced across staff devices).
    ========================================================= */
-const ORDER_FLOW={new:'בהכנה', preparing:'מוכנה', ready:'נמסרה', done:null};
+const ORDER_FLOW={new:'להכנה', preparing:'מוכנה', ready:'נמסרה', done:null};
 const ORDER_LABEL={new:'חדשה', preparing:'בהכנה', ready:'מוכנה', done:'נמסרה'};
 
 function renderOrders(){
@@ -2273,11 +2316,13 @@ function renderOrders(){
   const rows=[...(S.orders||[])].sort((a,b)=>b.ts-a.ts).slice(0,100);
   list.innerHTML=rows.map(o=>{
     const d=new Date(o.ts);
+    const waiting=!o.paid;                       // counter orders wait for the cashier to take payment
     const next=ORDER_FLOW[o.status||'new'];
-    return `<div class="card" style="border-inline-start:5px solid ${o.status==='done'?'var(--line)':o.paid?'var(--sale)':'var(--pending)'}">
+    const edge=o.status==='done'?'var(--line)':waiting?'var(--pending)':'var(--sale)';
+    return `<div class="card" style="border-inline-start:5px solid ${edge}">
       <div class="row" style="justify-content:space-between;margin-bottom:6px">
         <b style="font-size:19px">הזמנה #${esc(o.order)}</b>
-        <span class="tag ${o.paid?'paid':'pending'}">${o.paid?'שולם':'לתשלום בקופה'}</span>
+        <span class="tag ${waiting?'pending':'paid'}">${waiting?'ממתינה לתשלום':(o.method==='online'?'שולם אונליין':'שולם')}</span>
         <span class="mini">${dispDate(dateStr(d))} · ${timeStr(d)}</span>
       </div>
       <div style="font-size:15px;margin-bottom:6px">${esc(o.itemsTxt||'')}</div>
@@ -2286,12 +2331,21 @@ function renderOrders(){
         <b style="color:var(--sale-d)">${ILS(o.total)}</b>
         <span>
           <span class="tag" style="background:var(--paper-2)">${ORDER_LABEL[o.status||'new']}</span>
-          ${next?`<button class="btn" style="padding:6px 12px" onclick="advanceOrder('${o.id}')">➜ ${next}</button>`:''}
+          ${waiting
+            ? `<button class="btn green" style="padding:6px 14px" onclick="markOrderPaid('${o.id}')">₪ שולם</button>`
+            : (next?`<button class="btn" style="padding:6px 12px" onclick="advanceOrder('${o.id}')">➜ ${next}</button>`:'')}
         </span>
       </div>
     </div>`;
   }).join('');
   if(!rows.length) list.innerHTML='<div class="card"><p class="empty">אין הזמנות עדיין — כשלקוח יזמין מהתפריט הדיגיטלי, ההזמנה תופיע כאן</p></div>';
+}
+/* cashier took payment at the counter: mark paid and start preparation in one tap */
+function markOrderPaid(oid){
+  const o=S.orders.find(x=>x.id===oid); if(!o) return;
+  const before={paid:o.paid,status:o.status};
+  o.paid=1; o.status='preparing'; touch(o);
+  commit('הזמנה #'+o.order+' סומנה כשולמה', ()=>{ Object.assign(o,before); touch(o); });
 }
 function advanceOrder(oid){
   const o=S.orders.find(x=>x.id===oid); if(!o) return;
@@ -2315,12 +2369,14 @@ async function ordersPoll(){
         const ex=S.orders.find(x=>x.id===oid);
         if(!ex){
           S.orders.push({id:oid, ts:r.created, order:r.order, name:r.name, phone:r.phone,
-            itemsTxt:r.items, total:r.total, paid:r.paid?1:0, status:'new', mt:Date.now()});
+            itemsTxt:r.items, total:r.total, paid:r.paid?1:0, method:r.method||'counter',
+            status:r.paid?'preparing':'new', mt:Date.now()});   // paid online → straight to preparation
           changed=true;
           if(Date.now()-r.created < 5*60*1000)
-            showToastMsg(`🛎 הזמנה חדשה #${r.order} · ${ILS(r.total)}${r.paid?' · שולם':''}`);
+            showToastMsg(`🛎 הזמנה חדשה #${r.order} · ${ILS(r.total)}${r.paid?' · שולם':' · ממתינה לתשלום'}`);
         } else if(!ex.paid && r.paid){
-          ex.paid=1; touch(ex); changed=true;
+          ex.paid=1; if((ex.status||'new')==='new') ex.status='preparing';   // payment confirmed → preparation
+          ex.method=r.method||ex.method; touch(ex); changed=true;
           showToastMsg(`✓ הזמנה #${r.order} שולמה · ${ILS(r.total)}`);
         }
       });
@@ -2338,7 +2394,7 @@ async function ordersPoll(){
 setInterval(ordersPoll, 12000);
 window.addEventListener('online', ordersPoll);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) ordersPoll(); });
-ordersPoll();
+boot('ordersPoll', ordersPoll);
 
 /* =========================================================
    DIGITAL MENU EDITOR (manager → תפריט דיגיטלי)
@@ -2348,7 +2404,8 @@ ordersPoll();
 const MENU_DRAFT_KEY='kupa_menu_draft_v1';
 let menuDraft=null;
 try{ menuDraft=JSON.parse(localStorage.getItem(MENU_DRAFT_KEY)||'null'); }catch(e){}
-if(!menuDraft) menuDraft={config:{name:'Incanto',payUrl:''}, items:[]};
+if(!menuDraft) menuDraft={config:{name:'Incanto',payUrl:'https://mrng.to/v43zqCwrUy',
+  payParams:'amount={total}&description=הזמנה {order}&name={name}&phone={phone}'}, items:[]};
 
 function saveMenuDraft(){ localStorage.setItem(MENU_DRAFT_KEY, JSON.stringify(menuDraft)); }
 function setMenuState(t){ const el=document.getElementById('menuState'); if(el) el.textContent=t; }
@@ -2369,6 +2426,8 @@ function renderMenuEditor(){
   document.getElementById('menuLink').value=customerLink()||'חברו קודם את הסנכרון עם Grow בהגדרות';
   document.getElementById('menuBizName').value=menuDraft.config.name||'';
   document.getElementById('menuPayUrl').value=menuDraft.config.payUrl||'';
+  document.getElementById('menuPayParams').value=menuDraft.config.payParams!=null?menuDraft.config.payParams
+    :'amount={total}&description=הזמנה {order}&name={name}&phone={phone}';
   document.getElementById('mnuCats').innerHTML=[...new Set(menuDraft.items.map(i=>i.cat).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
   list.innerHTML=menuDraft.items.map((it,i)=>`
     <div class="row" style="border-bottom:1px dashed var(--line);padding-bottom:10px;align-items:center">
@@ -2447,6 +2506,7 @@ document.getElementById('menuPublish').onclick=async()=>{
   if(!S.growUrl){ alert('חברו קודם את הסנכרון עם Grow (הגדרות ← אישורי תשלום)'); return; }
   menuDraft.config.name=document.getElementById('menuBizName').value.trim()||'Incanto';
   menuDraft.config.payUrl=document.getElementById('menuPayUrl').value.trim();
+  menuDraft.config.payParams=document.getElementById('menuPayParams').value.trim();
   saveMenuDraft();
   const size=JSON.stringify(menuDraft).length;
   if(size>4*1024*1024){ alert('התפריט גדול מדי (תמונות רבות) — מחקו/החליפו תמונות'); return; }
@@ -2534,7 +2594,7 @@ document.getElementById('menuLinkCopy').onclick=()=>{
   document.getElementById('menuLink').select();
 };
 document.querySelector('[data-mtab="menu"]') && (document.querySelector('[data-mtab="menu"]').addEventListener('click', renderMenuEditor));
-renderMenuEditor();
+boot('menuEditor', renderMenuEditor);
 </script>
 </body>
 </html>

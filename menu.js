@@ -137,9 +137,12 @@ function renderCartBits() {
   lines.querySelectorAll('[data-cadd]').forEach(b => b.onclick = () => { cart[b.dataset.cadd]++; renderMenu(); });
   lines.querySelectorAll('[data-csub]').forEach(b => b.onclick = () => { cart[b.dataset.csub]--; if (cart[b.dataset.csub] <= 0) delete cart[b.dataset.csub]; renderMenu(); });
   $('cartTotal').textContent = ILS(cartTotal());
-  $('checkoutBtn').disabled = n === 0;
-  $('checkoutNote').textContent = (MENU.config && MENU.config.payUrl)
-    ? 'התשלום מתבצע באפליקציה, בדף מאובטח של Grow.'
+  const online = !!(MENU.config && MENU.config.payUrl);
+  $('payOnlineBtn').disabled = n === 0;
+  $('payCounterBtn').disabled = n === 0;
+  $('payOnlineBtn').style.display = online ? '' : 'none';
+  $('checkoutNote').textContent = online
+    ? 'תשלום מקוון מתבצע בדף מאובטח; בתשלום בקופה ההזמנה נשלחת למטבח ומשלמים באיסוף.'
     : 'ההזמנה תישלח למטבח — התשלום בקופה בעת האיסוף.';
 }
 
@@ -148,56 +151,93 @@ $('cartClose').onclick = () => $('cartSheet').classList.remove('show');
 $('cartSheet').onclick = e => { if (e.target === $('cartSheet')) $('cartSheet').classList.remove('show'); };
 
 /* ---------- checkout ---------- */
-$('checkoutBtn').onclick = async () => {
+async function placeOrder(payMethod) {
   const items = cartItems().map(l => ({ name: l.it.name, qty: l.qty, price: l.it.price }));
   if (!items.length) return;
-  $('checkoutBtn').disabled = true;
-  $('checkoutBtn').textContent = 'שולח הזמנה...';
+  const btn = payMethod === 'online' ? $('payOnlineBtn') : $('payCounterBtn');
+  const label = btn.textContent;
+  $('payOnlineBtn').disabled = $('payCounterBtn').disabled = true;
+  btn.textContent = 'שולח הזמנה...';
   try {
     // text/plain keeps this a CORS "simple request" — Apps Script has no preflight handler
     const res = await fetch(api('action=neworder'), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ items, total: cartTotal(), name: $('custName').value.trim(), phone: $('custPhone').value.trim() })
+      body: JSON.stringify({
+        items, total: cartTotal(), payMethod,
+        name: $('custName').value.trim(), phone: $('custPhone').value.trim()
+      })
     });
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || 'order failed');
-    currentOrder = { order: j.order, total: cartTotal() };
+    currentOrder = {
+      order: j.order, total: cartTotal(),
+      name: $('custName').value.trim(), phone: $('custPhone').value.trim()
+    };
     $('cartSheet').classList.remove('show');
-    if (MENU.config && MENU.config.payUrl) openPayment();
-    else showConfirm(false);
+    if (payMethod === 'online') openPayment(); else showConfirm(false);
   } catch (e) {
     alert('שליחת ההזמנה נכשלה — נסו שוב');
   }
-  $('checkoutBtn').disabled = false;
-  $('checkoutBtn').textContent = 'להזמנה ולתשלום';
-};
+  $('payOnlineBtn').disabled = $('payCounterBtn').disabled = false;
+  btn.textContent = label;
+}
+$('payOnlineBtn').onclick = () => placeOrder('online');
+$('payCounterBtn').onclick = () => placeOrder('counter');
 
-/* ---------- Grow in-app payment ----------
-   MENU.config.payUrl is the business's Grow payment-page URL, set in the
-   admin's digital-menu screen. We pass:
-     sum     = order total   (Grow payment pages accept a preset amount)
-     cField1 = order number  (comes back in the webhook so the backend can
-                              mark the order paid automatically)
-   If your Grow page uses different parameter names, change them here.
-   If you later move to Grow's createPaymentProcess API, do the API call
-   inside the Apps Script (keeping credentials server-side) and put the
-   returned payment URL into `u` below. */
+/* ---------- online payment (Morning) ----------
+   MENU.config.payUrl is the business's Morning payment link, e.g.
+   https://mrng.to/XXXXXXXX — set in the admin's digital-menu screen.
+
+   MENU.config.payParams is the query template appended to it, so the
+   parameter names can be corrected without touching code. Placeholders:
+     {total} {order} {name} {phone}
+   Default: amount={total}&description=הזמנה {order}&name={name}&phone={phone}
+
+   NOTE: a short link may drop query parameters on redirect, and Morning may
+   name its fields differently. Whatever it does not accept, the customer
+   simply types on the payment page — the order itself is already recorded.
+   To make prefilling exact, replace payUrl with the long-form payment URL
+   from Morning and adjust payParams to match its field names.
+
+   API upgrade path: if you move to Morning's API, create the payment request
+   inside the Apps Script (credentials stay server-side) and return its URL,
+   then use that URL here instead of building one. */
+const DEFAULT_PAY_PARAMS = 'amount={total}&description=הזמנה {order}&name={name}&phone={phone}';
 function payUrlFor(order) {
   const base = MENU.config.payUrl;
-  const u = base + (base.includes('?') ? '&' : '?') +
-    'sum=' + encodeURIComponent(order.total) +
-    '&cField1=' + encodeURIComponent(order.order);
-  return u;
+  const tpl = (MENU.config.payParams != null ? MENU.config.payParams : DEFAULT_PAY_PARAMS).trim();
+  if (!tpl) return base;
+  const q = tpl
+    .replace(/\{total\}/g, encodeURIComponent(order.total))
+    .replace(/\{order\}/g, encodeURIComponent(order.order))
+    .replace(/\{name\}/g, encodeURIComponent(order.name || ''))
+    .replace(/\{phone\}/g, encodeURIComponent(order.phone || ''));
+  return base + (base.includes('?') ? '&' : '?') + q;
 }
 function openPayment() {
   $('payOrderNo').textContent = '#' + currentOrder.order;
   $('payAmount').textContent = ILS(currentOrder.total);
   $('payFrame').src = payUrlFor(currentOrder);
   $('payWrap').classList.add('show');
-  pollStatus();
+  pollStatus();   // if the provider ever confirms server-side, the screen advances by itself
 }
-$('payExternal').onclick = () => { window.open(payUrlFor(currentOrder), '_blank'); };
+$('payExternal').onclick = () => { window.open(payUrlFor(currentOrder), '_blank', 'noopener'); };
+/* the customer tells us they paid; the order moves to preparation and the
+   cashier sees it as paid (amount is verifiable in the Morning dashboard) */
+$('payDone').onclick = async () => {
+  const b = $('payDone');
+  b.disabled = true; b.textContent = 'מאשר...';
+  try {
+    await fetch(api('action=confirmpaid'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ order: currentOrder.order })
+    });
+  } catch (e) { /* the order exists either way; the cashier can confirm manually */ }
+  b.disabled = false; b.textContent = '✓ סיימתי לשלם';
+  paymentDone();
+};
 $('payClose').onclick = () => {
   clearTimeout(statusTimer);
   $('payWrap').classList.remove('show');
@@ -223,11 +263,11 @@ function paymentDone() {
 
 /* ---------- confirmation ---------- */
 function showConfirm(paid) {
-  $('confirmTitle').textContent = paid ? 'התשלום אושר — ההזמנה בהכנה!' : 'ההזמנה התקבלה!';
+  $('confirmTitle').textContent = paid ? 'התשלום התקבל — ההזמנה בהכנה!' : 'ההזמנה התקבלה!';
   $('confirmNum').textContent = '#' + currentOrder.order;
   $('confirmMsg').textContent = paid
     ? 'שמרו את מספר ההזמנה — נקרא לכם כשהיא מוכנה.'
-    : 'גשו לקופה לתשלום ואמרו את מספר ההזמנה.';
+    : 'ההזמנה ממתינה לתשלום — גשו לקופה, אמרו את מספר ההזמנה, וההכנה תתחיל.';
   $('confirm').classList.add('show');
   cart = {}; renderMenu();
 }
