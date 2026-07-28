@@ -601,6 +601,11 @@ function boot(label, fn){
   try{ fn(); }catch(e){ console.error('init failed:', label, e); showBootError(label + ': ' + e.message); }
 }
 
+/* order status flow — declared here because renderAll() renders the orders
+   board during boot, long before the self-ordering section below */
+const ORDER_FLOW={new:'להכנה', preparing:'מוכנה', ready:'נמסרה', done:null};
+const ORDER_LABEL={new:'חדשה', preparing:'בהכנה', ready:'מוכנה', done:'נמסרה'};
+
 const LS_KEY = 'biz_system_v1';
 const ILS = n => '₪' + (Math.round(n*100)/100).toLocaleString('he-IL');
 const now = () => new Date();
@@ -1919,7 +1924,6 @@ function renderAll(){
   renderItems(); renderCart(); renderClock(); renderPays(); renderOrders();
   if(mgrUnlocked && document.getElementById('mgrPanel').style.display!=='none') renderManager();
 }
-boot('renderAll', renderAll);
 if(!supportsFS){ if(chipTxt)chipTxt.textContent='גיבוי: לא נתמך'; }
 
 /* ---- splash screen wiring ---- */
@@ -2270,7 +2274,7 @@ document.getElementById('growSave').onclick=()=>{
   if(url && !/^https:\/\/script\.google\.com\/macros\//.test(url)){
     alert('הכתובת צריכה להיות כתובת Web App של Apps Script (מתחילה ב-https://script.google.com/macros/...)'); return;
   }
-  if(url) url=url.split(/[?#]/)[0];   // drop any pasted ?key=... — the key belongs in its own field
+  if(url) url=url.split(/[?#]/)[0].replace(/\/+$/,'');   // drop any pasted ?key=... and trailing slashes (Apps Script 404s on '/exec/')
   if(/\/dev$/.test(url)){
     // /dev is the editor's test URL: it always demands the owner's Google login, so customers get a sign-in page
     if(!confirm('זוהי כתובת בדיקה (/dev) שדורשת התחברות ולכן לא תעבוד ללקוחות.\nלהחליף אוטומטית ל-/exec?')) return;
@@ -2308,8 +2312,6 @@ boot('fillGrowForm', fillGrowForm);
    the orders feed, toasts new/paid orders, and tracks prep
    status (synced across staff devices).
    ========================================================= */
-const ORDER_FLOW={new:'להכנה', preparing:'מוכנה', ready:'נמסרה', done:null};
-const ORDER_LABEL={new:'חדשה', preparing:'בהכנה', ready:'מוכנה', done:'נמסרה'};
 
 function renderOrders(){
   const list=document.getElementById('ordersList'); if(!list) return;
@@ -2411,7 +2413,7 @@ function saveMenuDraft(){ localStorage.setItem(MENU_DRAFT_KEY, JSON.stringify(me
 function setMenuState(t){ const el=document.getElementById('menuState'); if(el) el.textContent=t; }
 
 /* the public endpoint customers use — no key, no query leftovers */
-function customerEndpoint(){ return (S.growUrl||'').trim().split(/[?#]/)[0]; }
+function customerEndpoint(){ return (S.growUrl||'').trim().split(/[?#]/)[0].replace(/\/+$/,''); }
 function customerLink(){
   if(!S.growUrl) return '';
   const base=location.protocol.startsWith('http') ? new URL('menu.html', location.href).href
@@ -2595,6 +2597,7 @@ document.getElementById('menuLinkCopy').onclick=()=>{
 };
 document.querySelector('[data-mtab="menu"]') && (document.querySelector('[data-mtab="menu"]').addEventListener('click', renderMenuEditor));
 boot('menuEditor', renderMenuEditor);
+boot('renderAll', renderAll);   // last: every declaration above is initialized by now
 </script>
 </body>
 </html>
