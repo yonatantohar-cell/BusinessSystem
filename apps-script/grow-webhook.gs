@@ -16,7 +16,7 @@
  */
 
 const KEY = 'CHANGE_ME_TO_A_LONG_RANDOM_SECRET';
-const VERSION = 2;           // bumped with the script; the app checks this to catch a stale deployment
+const VERSION = 3;           // bumped with the script; the app checks this to catch a stale deployment
 const MAX_ROWS = 500;        // payments log cap
 const MAX_ORDER_ROWS = 400;  // orders log cap
 const ORDERS_FEED_HOURS = 48;
@@ -58,14 +58,52 @@ function ordersSheet_() {
   return sh;
 }
 
-function menuFile_() {
-  const props = props_();
-  const id = props.getProperty('MENU_FILE_ID');
-  if (id) { try { return DriveApp.getFileById(id); } catch (e) {} }
-  const f = DriveApp.createFile('incanto-menu.json',
-    JSON.stringify({ config: {}, items: [] }), 'application/json');
-  props_().setProperty('MENU_FILE_ID', f.getId());
-  return f;
+/* The menu lives in a 'menu' tab of the same spreadsheet, split across rows.
+   Deliberately NOT in Drive: DriveApp would need an OAuth scope this script
+   never had, and a web app cannot prompt the owner to grant one — it just
+   fails. SpreadsheetApp is already authorized, so publishing needs no extra
+   permission. A cell holds 50k chars; chunks are marked so a chunk that
+   happens to start with '=' is never parsed as a formula. */
+const MENU_CHUNK = 40000;
+const MENU_MARK = '~';
+const EMPTY_MENU = '{"config":{},"items":[]}';
+
+function menuSheet_() {
+  const ss = ss_();
+  return ss.getSheetByName('menu') || ss.insertSheet('menu', ss.getNumSheets());
+}
+
+function readMenu_() {
+  const sh = menuSheet_();
+  const last = sh.getLastRow();
+  if (last < 1) return EMPTY_MENU;
+  const rows = sh.getRange(1, 1, last, 1).getValues();
+  const out = rows.map(function (r) {
+    const s = String(r[0] == null ? '' : r[0]);
+    return s.charAt(0) === MENU_MARK ? s.substring(1) : s;
+  }).join('');
+  return out || EMPTY_MENU;
+}
+
+function writeMenu_(str) {
+  const sh = menuSheet_();
+  sh.clear();
+  const chunks = [];
+  for (var i = 0; i < str.length; i += MENU_CHUNK) {
+    chunks.push([MENU_MARK + str.substr(i, MENU_CHUNK)]);
+  }
+  if (chunks.length) sh.getRange(1, 1, chunks.length, 1).setValues(chunks);
+}
+
+/**
+ * Optional: press Run on this function in the editor to verify storage works
+ * and to see the result in the execution log. Not needed for normal operation.
+ */
+function setup() {
+  const before = readMenu_().length;
+  writeMenu_(readMenu_());
+  Logger.log('OK — version %s, menu bytes: %s, orders rows: %s',
+    VERSION, before, Math.max(0, ordersSheet_().getLastRow() - 1));
 }
 
 /* ================= tolerant payload parsing ================= */
@@ -121,7 +159,7 @@ function doGet(e) {
     }
 
     if (action === 'menu') {   // public: the published digital menu
-      return ContentService.createTextOutput(menuFile_().getBlob().getDataAsString())
+      return ContentService.createTextOutput(readMenu_())
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -170,7 +208,7 @@ function doPost(e) {
 
     if (action === 'savemenu') {   // admin publishes the menu
       const menu = body.menu || {};
-      menuFile_().setContent(JSON.stringify(menu));
+      writeMenu_(JSON.stringify(menu));
       // echo version + count so the app can prove the new code handled this, not an old deployment
       return json_({ ok: true, version: VERSION, items: (menu.items || []).length });
     }
