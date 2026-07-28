@@ -18,21 +18,48 @@ let activeCat = null;
 let currentOrder = null;    // {order, total}
 let statusTimer = null;
 
-/* ---------- load menu ---------- */
+/* ---------- load menu ----------
+   Failures here are almost always configuration, not networking, so the
+   message names the actual cause instead of a generic "try again". */
+function menuError(msg, detail) {
+  $('stateMsg').innerHTML = msg + (detail ? `<br><span style="font-size:12px;opacity:.6">${esc(String(detail).slice(0, 120))}</span>` : '');
+}
+
 async function loadMenu() {
   if (!API || !/^https:\/\/script\.google\.com\/macros\//.test(API)) {
-    $('stateMsg').innerHTML = 'קישור התפריט חסר או שגוי.<br>יש לסרוק שוב את קוד ה-QR של העסק.';
+    menuError('קישור התפריט חסר או שגוי.<br>יש לסרוק שוב את קוד ה-QR של העסק.');
     return;
   }
-  try {
-    const res = await fetch(api('action=menu'));
-    MENU = await res.json();
-    if (!MENU || !Array.isArray(MENU.items)) throw new Error('bad menu');
-    if (MENU.config && MENU.config.name) { $('bizName').textContent = MENU.config.name; document.title = MENU.config.name + ' · תפריט'; }
-    renderMenu();
-  } catch (e) {
-    $('stateMsg').innerHTML = 'לא הצלחנו לטעון את התפריט.<br>בדקו את החיבור לאינטרנט ונסו לרענן.';
+  if (/\/dev(\?|$)/.test(API)) {
+    // the /dev deployment always demands the owner's Google login — it can never serve customers
+    menuError('הקישור מצביע על כתובת בדיקה (/dev) שדורשת התחברות.<br>על בעל העסק להשתמש בכתובת ה-Web app שמסתיימת ב-<b>/exec</b>.');
+    return;
   }
+  let res, txt;
+  try {
+    res = await fetch(api('action=menu'));
+    txt = await res.text();
+  } catch (e) {
+    menuError('אין חיבור לשרת התפריט.<br>בדקו את החיבור לאינטרנט ונסו לרענן.', e.message);
+    return;
+  }
+  let data = null;
+  try { data = JSON.parse(txt); } catch (e) { /* not JSON — diagnosed below */ }
+  if (!data) {
+    // Apps Script served HTML: a Google sign-in/consent page or an error page.
+    const login = /accounts\.google\.com|ServiceLogin|Sign in|התחברות/i.test(txt);
+    menuError(login
+      ? 'שרת התפריט מבקש התחברות לחשבון Google.<br>על בעל העסק להגדיר בפריסת ה-Apps Script: <b>Who has access: Anyone</b>, ולהשתמש בכתובת <b>/exec</b>.'
+      : 'שרת התפריט החזיר תשובה לא תקינה.<br>על בעל העסק לבדוק את פריסת ה-Apps Script.',
+      'HTTP ' + res.status);
+    return;
+  }
+  if (data.ok === false) { menuError('שרת התפריט דחה את הבקשה.', data.error); return; }
+  if (!Array.isArray(data.items)) { menuError('התפריט טרם פורסם.<br>על בעל העסק ללחוץ "פרסום התפריט" באזור המנהל.'); return; }
+  MENU = data;
+  MENU.config = MENU.config || {};
+  if (MENU.config.name) { $('bizName').textContent = MENU.config.name; document.title = MENU.config.name + ' · תפריט'; }
+  renderMenu();
 }
 
 function cats() {

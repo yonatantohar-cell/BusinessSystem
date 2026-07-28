@@ -473,6 +473,7 @@
             <div class="row">
               <button class="btn" id="menuReload">↻ טען תפריט שפורסם</button>
               <button class="btn green" id="menuPublish">🚀 פרסום התפריט</button>
+              <button class="btn" id="menuCheck">🔍 בדיקה כמו לקוח</button>
               <span class="mini" id="menuState"></span>
             </div>
             <div class="field"><label>קישור ללקוחות (להפקת קוד QR)</label>
@@ -2221,11 +2222,18 @@ function fillGrowForm(){
   setGrowState(S.growUrl?'מוגדר':'לא מוגדר');
 }
 document.getElementById('growSave').onclick=()=>{
-  const url=document.getElementById('growUrl').value.trim();
+  let url=document.getElementById('growUrl').value.trim();
   const key=document.getElementById('growKey').value.trim();
   if(url && !/^https:\/\/script\.google\.com\/macros\//.test(url)){
     alert('הכתובת צריכה להיות כתובת Web App של Apps Script (מתחילה ב-https://script.google.com/macros/...)'); return;
   }
+  if(url) url=url.split(/[?#]/)[0];   // drop any pasted ?key=... — the key belongs in its own field
+  if(/\/dev$/.test(url)){
+    // /dev is the editor's test URL: it always demands the owner's Google login, so customers get a sign-in page
+    if(!confirm('זוהי כתובת בדיקה (/dev) שדורשת התחברות ולכן לא תעבוד ללקוחות.\nלהחליף אוטומטית ל-/exec?')) return;
+    url=url.replace(/\/dev$/,'/exec');
+  }
+  document.getElementById('growUrl').value=url;
   S.growUrl=url; S.growKey=key; S.settingsMt=Date.now();
   commit();
   setGrowState(url?'נשמר — בודק...':'לא מוגדר');
@@ -2349,7 +2357,9 @@ function customerLink(){
   if(!S.growUrl) return '';
   const base=location.protocol.startsWith('http') ? new URL('menu.html', location.href).href
     : 'https://yonatantohar-cell.github.io/BusinessSystem/menu.html';
-  return base+'?api='+encodeURIComponent(S.growUrl);
+  // strip any query/hash (e.g. a pasted ?key=...) so the secret never travels in a customer link
+  const endpoint=S.growUrl.trim().split(/[?#]/)[0];
+  return base+'?api='+encodeURIComponent(endpoint);
 }
 
 function renderMenuEditor(){
@@ -2460,6 +2470,27 @@ document.getElementById('menuReload').onclick=async()=>{
     saveMenuDraft(); renderMenuEditor();
     setMenuState('נטען התפריט המפורסם ('+m.items.length+' מנות)');
   }catch(e){ setMenuState('הטעינה נכשלה'); }
+};
+/* fetch the public menu endpoint exactly as a customer's phone would —
+   no key, no login — so configuration problems show up here, not in the field */
+document.getElementById('menuCheck').onclick=async()=>{
+  if(!S.growUrl){ alert('אין חיבור מוגדר'); return; }
+  const endpoint=S.growUrl.trim().split(/[?#]/)[0];
+  if(/\/dev$/.test(endpoint)){ setMenuState('❌ הכתובת היא /dev (כתובת בדיקה שדורשת התחברות) — יש להשתמש ב-/exec'); return; }
+  setMenuState('בודק כמו לקוח...');
+  try{
+    const res=await fetch(endpoint+'?action=menu');
+    const txt=await res.text();
+    let data=null; try{ data=JSON.parse(txt); }catch(e){}
+    if(!data){
+      setMenuState(/accounts\.google\.com|ServiceLogin|Sign in/i.test(txt)
+        ? '❌ השרת מבקש התחברות ל-Google — בפריסה יש להגדיר Who has access: Anyone, ולפרוס גרסה חדשה'
+        : '❌ השרת החזיר תוכן שאינו JSON (HTTP '+res.status+') — בדקו את הפריסה');
+      return;
+    }
+    if(!Array.isArray(data.items)){ setMenuState('❌ לא נמצא תפריט מפורסם — לחצו "פרסום התפריט"'); return; }
+    setMenuState('✅ הלקוחות רואים '+data.items.length+' מנות — הקישור תקין');
+  }catch(e){ setMenuState('❌ אין גישה לשרת: '+e.message); }
 };
 document.getElementById('menuLinkCopy').onclick=()=>{
   const v=customerLink(); if(!v){ alert('חברו קודם את הסנכרון עם Grow'); return; }
