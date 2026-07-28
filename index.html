@@ -2456,21 +2456,35 @@ document.getElementById('menuPublish').onclick=async()=>{
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({menu:menuDraft})
     });
-    const j=await res.json();
-    if(!j.ok) throw new Error(j.error||'?');
+    const txt=await res.text();
+    let j=null; try{ j=JSON.parse(txt); }catch(e){}
+    if(!j){
+      // Apps Script returned HTML: an authorization/error page produced before our code ran
+      const plain=txt.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim();
+      setMenuState(/authoriz|permission|denied/i.test(plain)
+        ? '❌ הסקריפט חסר הרשאה בגוגל. פתחו את Apps Script ← הריצו פעם אחת את הפונקציה setup ואשרו ← ואז Manage deployments ← New version'
+        : '❌ השרת החזיר תשובה שאינה JSON (HTTP '+res.status+'): '+plain.slice(0,110));
+      return;
+    }
+    if(!j.ok){ setMenuState('❌ השרת דחה את הפרסום: '+(j.error||'?')); return; }
     // an old deployment answers ok:true to any keyed POST (it treats it as a webhook),
     // so never trust ok alone — require the version echo, then read the menu back
     if(!j.version){
       setMenuState('❌ בשרת פועלת גרסה ישנה של הסקריפט — התפריט לא נשמר. עדכנו את הקוד ופרסו גרסה חדשה (ראו README)');
       return;
     }
-    const back=await (await fetch(customerEndpoint()+'?action=menu')).json();
-    if(!Array.isArray(back.items) || back.items.length!==menuDraft.items.length){
-      setMenuState('❌ הפרסום לא אומת — השרת מחזיר תפריט אחר. בדקו שהפריסה מעודכנת');
-      return;
+    const backTxt=await (await fetch(customerEndpoint()+'?action=menu')).text();
+    let back=null; try{ back=JSON.parse(backTxt); }catch(e){}
+    if(!back || !Array.isArray(back.items)){
+      setMenuState('❌ הפרסום לא אומת — קריאת התפריט חזרה לא תקינה'); return;
+    }
+    if(back.items.length!==menuDraft.items.length){
+      setMenuState('❌ הפרסום לא אומת — בשרת '+back.items.length+' מנות במקום '+menuDraft.items.length); return;
     }
     setMenuState('פורסם ואומת ✓ '+timeStr(now())+' — הלקוחות רואים '+back.items.length+' מנות');
-  }catch(e){ setMenuState('הפרסום נכשל — בדקו חיבור ומפתח'); }
+  }catch(e){
+    setMenuState('❌ הפרסום נכשל: '+(e.message||e)+' · גודל התפריט '+Math.round(size/1024)+'KB');
+  }
 };
 document.getElementById('menuReload').onclick=async()=>{
   if(!S.growUrl){ alert('אין חיבור מוגדר'); return; }
