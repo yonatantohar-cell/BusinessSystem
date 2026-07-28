@@ -17,7 +17,7 @@
  */
 
 const KEY = 'CHANGE_ME_TO_A_LONG_RANDOM_SECRET';
-const VERSION = 4;           // bumped with the script; the app checks this to catch a stale deployment
+const VERSION = 5;           // bumped with the script; the app checks this to catch a stale deployment
 const MAX_ROWS = 500;        // payments log cap
 const MAX_ORDER_ROWS = 400;  // orders log cap
 const ORDERS_FEED_HOURS = 48;
@@ -56,7 +56,7 @@ function ordersSheet_() {
   let sh = ss.getSheetByName('orders');
   if (!sh) {
     sh = ss.insertSheet('orders', ss.getNumSheets());   // always appended last
-    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref', 'method']);
+    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref', 'method', 'state', 'email']);
   }
   return sh;
 }
@@ -174,8 +174,12 @@ function doGet(e) {
 
     if ((p.key || '') !== KEY) return json_({ ok: false, error: 'bad key' });
 
-    if (action === 'orders') {   // POS feed: recent orders (created or updated)
-      return json_({ ok: true, orders: listOrders_() });
+    if (action === 'orders') {   // POS board: confirmed orders only
+      return json_({ ok: true, orders: listOrders_('active') });
+    }
+
+    if (action === 'pending') {   // manager view: online orders awaiting payment confirmation
+      return json_({ ok: true, orders: listOrders_('pending_gateway') });
     }
 
     // default: payments feed (unchanged behavior)
@@ -207,13 +211,19 @@ function doPost(e) {
 
     if (action === 'neworder') return newOrder_(body);          // public
 
-    if (action === 'confirmpaid') {   // public: customer finished the online payment page
+    if (action === 'confirmpaid') {   // public: customer says they finished the payment page
       const t = findOrderRow_(String(body.order || ''));
       if (!t) return json_({ ok: false, error: 'not found' });
       const sh = ordersSheet_();
-      sh.getRange(t.row, 7).setValue(1);
-      if (!String(sh.getRange(t.row, 8).getValue())) sh.getRange(t.row, 8).setValue('online');
+      // a customer claim alone never reaches the kitchen; it is recorded so the
+      // manager sees it in the pending list, and the webhook (or the manager) releases it
+      if (!String(sh.getRange(t.row, 8).getValue())) sh.getRange(t.row, 8).setValue('customer-claim');
       return json_({ ok: true, order: t.order });
+    }
+
+    if (action === 'release') {   // manager releases a pending online order (key protected below)
+      if ((p0.key || '') !== KEY) return json_({ ok: false, error: 'bad key' });
+      return json_({ ok: releaseOrder_(String(body.order || ''), body.paid ? 1 : 0) });
     }
 
     if ((p0.key || '') !== KEY) return json_({ ok: false, error: 'bad key' });
@@ -267,8 +277,10 @@ function newOrder_(body) {
     orderNo = String(n);
     const sh = ordersSheet_();
     const method = String(body.payMethod || 'counter') === 'online' ? 'online' : 'counter';
+    const state = method === 'online' ? 'pending_gateway' : 'active';
     sh.appendRow([Date.now(), orderNo, String(body.name || '').slice(0, 60),
-      String(body.phone || '').slice(0, 30), itemsTxt, total, 0, '', method]);
+      String(body.phone || '').slice(0, 30), itemsTxt, total, 0, '', method, state,
+      String(body.email || '').slice(0, 80)]);
     const extra = sh.getLastRow() - 1 - MAX_ORDER_ROWS;
     if (extra > 0) sh.deleteRows(2, extra);
   } finally {
@@ -280,17 +292,18 @@ function newOrder_(body) {
 function ordersRows_() {
   const sh = ordersSheet_();
   const last = sh.getLastRow();
-  return last > 1 ? sh.getRange(2, 1, last - 1, 9).getValues() : [];
+  return last > 1 ? sh.getRange(2, 1, last - 1, 11).getValues() : [];
 }
 
-function listOrders_() {
+function listOrders_(wantState) {
   const cutoff = Date.now() - ORDERS_FEED_HOURS * 3600 * 1000;
+  const want = wantState || 'active';
   return ordersRows_()
-    .filter(function (r) { return Number(r[0]) > cutoff; })
+    .filter(function (r) { return Number(r[0]) > cutoff && String(r[9] || 'active') === want; })
     .map(function (r) {
       return { created: Number(r[0]), order: String(r[1]), name: String(r[2]), phone: String(r[3]),
                items: String(r[4]), total: Number(r[5]), paid: Number(r[6]) ? 1 : 0, payref: String(r[7]),
-               method: String(r[8] || 'counter') };
+               method: String(r[8] || 'counter'), state: String(r[9] || 'active'), email: String(r[10] || '') };
     })
     .slice(-150);
 }
@@ -324,7 +337,18 @@ function markOrderPaid_(orderNo, amount, ref) {
   if (target) {
     sh.getRange(target.row, 7).setValue(1);
     sh.getRange(target.row, 8).setValue(String(ref || ''));
+    sh.getRange(target.row, 10).setValue('active');   // confirmed → appears on the POS board
   }
+}
+
+/* release a pending online order onto the board by hand (manager decision) */
+function releaseOrder_(orderNo, paid) {
+  const t = findOrderRow_(orderNo);
+  if (!t) return false;
+  const sh = ordersSheet_();
+  sh.getRange(t.row, 10).setValue('active');
+  if (paid) sh.getRange(t.row, 7).setValue(1);
+  return true;
 }
 
 function json_(obj) {
