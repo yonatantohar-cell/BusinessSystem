@@ -266,6 +266,7 @@
   <nav id="tabs">
     <div class="tab active" data-screen="pos">קופה</div>
     <div class="tab" data-screen="clock">שעון נוכחות</div>
+    <div class="tab" data-screen="orders">הזמנות</div>
     <div class="tab" data-screen="pays">אישורי תשלום</div>
     <div class="tab" data-screen="manager">אזור מנהל</div>
   </nav>
@@ -309,6 +310,14 @@
       <div class="emp-grid" id="clockGrid"></div>
     </section>
 
+    <!-- ============ SELF-ORDERING: INCOMING ORDERS ============ -->
+    <section class="screen" id="orders">
+      <h2>הזמנות מהתפריט הדיגיטלי</h2>
+      <p class="sub">הזמנות שלקוחות שלחו מהטלפון · מתעדכן אוטומטית · לחצו על הזמנה כדי לקדם את הסטטוס</p>
+      <div id="ordersList"></div>
+      <p class="mini" id="ordersState">לא הוגדר חיבור — באזור מנהל ← הגדרות ← אישורי תשלום (Grow)</p>
+    </section>
+
     <!-- ============ BARCODE PAYMENT APPROVALS (Grow) ============ -->
     <section class="screen" id="pays">
       <h2>אישורי תשלום בברקוד</h2>
@@ -337,6 +346,7 @@
           <div class="tab mgr-tab" data-mtab="expenses" style="border-radius:12px">הוצאות</div>
           <div class="tab mgr-tab" data-mtab="inventory" style="border-radius:12px">מלאי ומוצרים</div>
           <div class="tab mgr-tab" data-mtab="payroll" style="border-radius:12px">עובדים ושכר</div>
+          <div class="tab mgr-tab" data-mtab="menu" style="border-radius:12px">תפריט דיגיטלי</div>
           <div class="tab mgr-tab" data-mtab="settings" style="border-radius:12px">הגדרות</div>
         </div>
 
@@ -455,6 +465,44 @@
           </div>
         </div>
 
+        <!-- DIGITAL MENU (Incanto) -->
+        <div class="mtab-screen" id="m-menu" style="display:none">
+          <div class="card">
+            <h3>תפריט דיגיטלי — Incanto</h3>
+            <p class="mini" style="margin-bottom:10px;line-height:1.6">התפריט מתפרסם דרך אותו חיבור Apps Script של אישורי התשלום (הגדרות ← אישורי תשלום). לקוחות סורקים QR של הקישור למטה, מזמינים ומשלמים מהטלפון — וההזמנה מופיעה במסך "הזמנות".</p>
+            <div class="row">
+              <button class="btn" id="menuReload">↻ טען תפריט שפורסם</button>
+              <button class="btn green" id="menuPublish">🚀 פרסום התפריט</button>
+              <span class="mini" id="menuState"></span>
+            </div>
+            <div class="field"><label>קישור ללקוחות (להפקת קוד QR)</label>
+              <div class="row" style="margin-bottom:0"><input id="menuLink" readonly dir="ltr" style="flex:1"><button class="btn" id="menuLinkCopy">העתק</button></div>
+            </div>
+            <div class="two" style="max-width:640px">
+              <div class="field"><label>שם העסק (יוצג ללקוחות)</label><input id="menuBizName" placeholder="Incanto"></div>
+              <div class="field"><label>כתובת דף תשלום Grow (ריק = תשלום בקופה)</label><input id="menuPayUrl" dir="ltr" placeholder="https://..."></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>הוספת מנה</h3>
+            <div class="two" style="max-width:640px">
+              <div class="field"><label>שם המנה</label><input id="mnuName" placeholder="פיצה מרגריטה"></div>
+              <div class="field"><label>קטגוריה</label><input id="mnuCat" placeholder="פיצות" list="mnuCats"><datalist id="mnuCats"></datalist></div>
+            </div>
+            <div class="two" style="max-width:640px">
+              <div class="field"><label>מחיר (₪)</label><input id="mnuPrice" type="number" inputmode="decimal" value="0"></div>
+              <div class="field"><label>תמונה (נדחסת אוטומטית)</label><input id="mnuImg" type="file" accept="image/*"></div>
+            </div>
+            <div class="field" style="max-width:640px"><label>תיאור קצר</label><input id="mnuDesc" placeholder="רוטב עגבניות, מוצרלה, בזיליקום"></div>
+            <button class="btn primary" id="mnuAdd">＋ הוסף לתפריט</button>
+            <p class="mini" style="margin-top:8px">שינויים נשמרים כטיוטה במכשיר זה; רק "פרסום התפריט" מעדכן את הלקוחות.</p>
+          </div>
+          <div class="card">
+            <h3>המנות בתפריט (טיוטה)</h3>
+            <div id="menuItemsList"></div>
+          </div>
+        </div>
+
         <!-- SETTINGS -->
         <div class="mtab-screen" id="m-settings" style="display:none">
           <div class="card" style="max-width:460px">
@@ -559,6 +607,7 @@ const defaultState = () => ({
   empDiscountPct:35, // global employee discount %
   rateReg:35,
   growPays:[],    // {id:'gp_'+ref, ts, name, amount, mt} — approved Grow payments
+  orders:[],      // {id:'ord_'+n, ts, order, name, phone, itemsTxt, total, paid, status, mt} — self-ordering
   growUrl:'',     // Apps Script Web App endpoint
   growKey:'',     // shared secret, must match the script's KEY
 });
@@ -583,7 +632,7 @@ function migrate(s){
   if(!s.tombstones) s.tombstones=[];
   s.tombstones=s.tombstones.filter(t=>t.ts>Date.now()-180*24*3600*1000);   // prune ancient tombstones
   if(s.settingsMt==null) s.settingsMt=0;
-  ['sales','expenses','shifts','empTakes','items','employees','growPays'].forEach(k=>{
+  ['sales','expenses','shifts','empTakes','items','employees','growPays','orders'].forEach(k=>{
     if(!s[k]) s[k]=[];
     s[k].forEach(r=>{ if(r.mt==null) r.mt=r.ts||0; });
   });
@@ -1659,7 +1708,7 @@ document.getElementById('wipeAll').onclick=()=>{
   if(confirm('פעולה זו תמחק את כל הנתונים לצמיתות'+(syncCfg?' — בכל המכשירים המסונכרנים':'')+'. להמשיך?')){
     // tombstone every existing record so the wipe propagates to synced devices instead of the cloud restoring them
     const oldTombs=S.tombstones||[], ts=Date.now();
-    const allIds=['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(S[k]||[]).map(r=>r.id));
+    const allIds=['sales','expenses','shifts','empTakes','items','employees','growPays','orders'].flatMap(k=>(S[k]||[]).map(r=>r.id));
     S=defaultState();
     S.tombstones=[...oldTombs, ...allIds.map(recId=>({id:recId, ts}))];
     S.settingsMt=ts;
@@ -1724,6 +1773,7 @@ function mergeStates(base, add){
   mergeById('items');
   mergeById('employees');
   mergeById('growPays',true);
+  mergeById('orders',true);
   if((add.settingsMt||0)>(base.settingsMt||0)){
     out.password=add.password;
     out.rateReg=add.rateReg;
@@ -1742,12 +1792,12 @@ function applyImport(loaded){
   } else {
     // full replace: tombstone current records missing from the backup, so the
     // replacement also propagates to synced devices instead of being re-merged back
-    const keep=new Set(['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(loaded[k]||[]).map(r=>r.id)));
+    const keep=new Set(['sales','expenses','shifts','empTakes','items','employees','growPays','orders'].flatMap(k=>(loaded[k]||[]).map(r=>r.id)));
     const ts=Date.now();
-    const gone=['sales','expenses','shifts','empTakes','items','employees','growPays'].flatMap(k=>(S[k]||[]).map(r=>r.id)).filter(recId=>!keep.has(recId));
+    const gone=['sales','expenses','shifts','empTakes','items','employees','growPays','orders'].flatMap(k=>(S[k]||[]).map(r=>r.id)).filter(recId=>!keep.has(recId));
     loaded.tombstones=[...(loaded.tombstones||[]), ...gone.map(recId=>({id:recId,ts}))];
     loaded.settingsMt=ts;
-    ['sales','expenses','shifts','empTakes','items','employees','growPays'].forEach(k=>(loaded[k]||[]).forEach(r=>{ if(!r.mt||r.mt<ts) r.mt=ts; }));
+    ['sales','expenses','shifts','empTakes','items','employees','growPays','orders'].forEach(k=>(loaded[k]||[]).forEach(r=>{ if(!r.mt||r.mt<ts) r.mt=ts; }));
     S=loaded; alert('הנתונים הוחלפו בגיבוי');
   }
   persist(); renderAll(); if(backupDir)scheduleBackup(); scheduleSync();
@@ -1838,7 +1888,7 @@ document.getElementById('exportXls').onclick=()=>{
    ========================================================= */
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function renderAll(){
-  renderItems(); renderCart(); renderClock(); renderPays();
+  renderItems(); renderCart(); renderClock(); renderPays(); renderOrders();
   if(mgrUnlocked && document.getElementById('mgrPanel').style.display!=='none') renderManager();
 }
 renderAll();
@@ -2103,14 +2153,16 @@ function renderPays(){
 const payToastEl=document.getElementById('payToast');
 let payToastQueue=[], payToastBusy=false;
 function showPayToast(name, amount){
-  payToastQueue.push({name,amount});
+  showToastMsg(`✓ תשלום אושר · ${name||'לקוח'} · ${ILS(amount)}`);
+}
+function showToastMsg(text){
+  payToastQueue.push(text);
   runPayToast();
 }
 function runPayToast(){
   if(payToastBusy || !payToastQueue.length) return;
   payToastBusy=true;
-  const p=payToastQueue.shift();
-  payToastEl.textContent=`✓ תשלום אושר · ${p.name||'לקוח'} · ${ILS(p.amount)}`;
+  payToastEl.textContent=payToastQueue.shift();
   payToastEl.classList.add('show');
   setTimeout(()=>{
     payToastEl.classList.remove('show');
@@ -2198,6 +2250,224 @@ document.getElementById('growOff').onclick=()=>{
   commit(); fillGrowForm();
 };
 fillGrowForm();
+
+/* =========================================================
+   SELF-ORDERING — incoming orders from the digital menu
+   Customers order via menu.html → Apps Script; the POS polls
+   the orders feed, toasts new/paid orders, and tracks prep
+   status (synced across staff devices).
+   ========================================================= */
+const ORDER_FLOW={new:'בהכנה', preparing:'מוכנה', ready:'נמסרה', done:null};
+const ORDER_LABEL={new:'חדשה', preparing:'בהכנה', ready:'מוכנה', done:'נמסרה'};
+
+function renderOrders(){
+  const list=document.getElementById('ordersList'); if(!list) return;
+  const rows=[...(S.orders||[])].sort((a,b)=>b.ts-a.ts).slice(0,100);
+  list.innerHTML=rows.map(o=>{
+    const d=new Date(o.ts);
+    const next=ORDER_FLOW[o.status||'new'];
+    return `<div class="card" style="border-inline-start:5px solid ${o.status==='done'?'var(--line)':o.paid?'var(--sale)':'var(--pending)'}">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <b style="font-size:19px">הזמנה #${esc(o.order)}</b>
+        <span class="tag ${o.paid?'paid':'pending'}">${o.paid?'שולם':'לתשלום בקופה'}</span>
+        <span class="mini">${dispDate(dateStr(d))} · ${timeStr(d)}</span>
+      </div>
+      <div style="font-size:15px;margin-bottom:6px">${esc(o.itemsTxt||'')}</div>
+      <div class="row" style="justify-content:space-between;margin-bottom:0">
+        <span class="mini">${esc(o.name||'')}${o.phone?' · '+esc(o.phone):''}</span>
+        <b style="color:var(--sale-d)">${ILS(o.total)}</b>
+        <span>
+          <span class="tag" style="background:var(--paper-2)">${ORDER_LABEL[o.status||'new']}</span>
+          ${next?`<button class="btn" style="padding:6px 12px" onclick="advanceOrder('${o.id}')">➜ ${next}</button>`:''}
+        </span>
+      </div>
+    </div>`;
+  }).join('');
+  if(!rows.length) list.innerHTML='<div class="card"><p class="empty">אין הזמנות עדיין — כשלקוח יזמין מהתפריט הדיגיטלי, ההזמנה תופיע כאן</p></div>';
+}
+function advanceOrder(oid){
+  const o=S.orders.find(x=>x.id===oid); if(!o) return;
+  const flow=['new','preparing','ready','done'];
+  const i=flow.indexOf(o.status||'new');
+  if(i<0||i>=flow.length-1) return;
+  o.status=flow[i+1]; touch(o); commit();
+}
+
+let ordersBusy=false;
+async function ordersPoll(){
+  if(!S.growUrl || ordersBusy || !navigator.onLine || document.hidden) return;
+  ordersBusy=true;
+  try{
+    const res=await fetch(growEndpoint('&action=orders'));
+    const j=await res.json();
+    if(j.ok && Array.isArray(j.orders)){
+      let changed=false;
+      j.orders.forEach(r=>{
+        const oid='ord_'+r.order;
+        const ex=S.orders.find(x=>x.id===oid);
+        if(!ex){
+          S.orders.push({id:oid, ts:r.created, order:r.order, name:r.name, phone:r.phone,
+            itemsTxt:r.items, total:r.total, paid:r.paid?1:0, status:'new', mt:Date.now()});
+          changed=true;
+          if(Date.now()-r.created < 5*60*1000)
+            showToastMsg(`🛎 הזמנה חדשה #${r.order} · ${ILS(r.total)}${r.paid?' · שולם':''}`);
+        } else if(!ex.paid && r.paid){
+          ex.paid=1; touch(ex); changed=true;
+          showToastMsg(`✓ הזמנה #${r.order} שולמה · ${ILS(r.total)}`);
+        }
+      });
+      if(changed){
+        S.orders=S.orders.slice(-200);
+        persist(); renderOrders(); scheduleSync();
+        if(backupDir) scheduleBackup();
+      }
+    }
+    const st=document.getElementById('ordersState');
+    if(st) st.textContent='עודכן '+timeStr(now());
+  }catch(e){ /* transient — next poll retries */ }
+  ordersBusy=false;
+}
+setInterval(ordersPoll, 12000);
+window.addEventListener('online', ordersPoll);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) ordersPoll(); });
+ordersPoll();
+
+/* =========================================================
+   DIGITAL MENU EDITOR (manager → תפריט דיגיטלי)
+   Edits a local draft; "פרסום" pushes it to the Apps Script,
+   which serves it publicly to menu.html customers.
+   ========================================================= */
+const MENU_DRAFT_KEY='kupa_menu_draft_v1';
+let menuDraft=null;
+try{ menuDraft=JSON.parse(localStorage.getItem(MENU_DRAFT_KEY)||'null'); }catch(e){}
+if(!menuDraft) menuDraft={config:{name:'Incanto',payUrl:''}, items:[]};
+
+function saveMenuDraft(){ localStorage.setItem(MENU_DRAFT_KEY, JSON.stringify(menuDraft)); }
+function setMenuState(t){ const el=document.getElementById('menuState'); if(el) el.textContent=t; }
+
+function customerLink(){
+  if(!S.growUrl) return '';
+  const base=location.protocol.startsWith('http') ? new URL('menu.html', location.href).href
+    : 'https://yonatantohar-cell.github.io/BusinessSystem/menu.html';
+  return base+'?api='+encodeURIComponent(S.growUrl);
+}
+
+function renderMenuEditor(){
+  const list=document.getElementById('menuItemsList'); if(!list) return;
+  document.getElementById('menuLink').value=customerLink()||'חברו קודם את הסנכרון עם Grow בהגדרות';
+  document.getElementById('menuBizName').value=menuDraft.config.name||'';
+  document.getElementById('menuPayUrl').value=menuDraft.config.payUrl||'';
+  document.getElementById('mnuCats').innerHTML=[...new Set(menuDraft.items.map(i=>i.cat).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
+  list.innerHTML=menuDraft.items.map((it,i)=>`
+    <div class="row" style="border-bottom:1px dashed var(--line);padding-bottom:10px;align-items:center">
+      ${it.img?`<img src="${it.img}" alt="" style="width:52px;height:52px;border-radius:10px;object-fit:cover">`:'<span style="width:52px;height:52px;border-radius:10px;background:var(--paper-2);display:grid;place-items:center">🍽</span>'}
+      <div style="flex:1;min-width:160px">
+        <b>${esc(it.name)}</b> <span class="mini">· ${esc(it.cat||'כללי')} · ${ILS(it.price)}</span>
+        ${it.desc?`<div class="mini">${esc(it.desc)}</div>`:''}
+      </div>
+      <label class="mini" style="display:flex;align-items:center;gap:5px;margin:0">זמין
+        <input type="checkbox" ${it.avail!==false?'checked':''} onchange="menuItemAvail(${i},this.checked)" style="width:18px;height:18px"></label>
+      <button class="btn" style="padding:5px 10px" onclick="menuItemMove(${i},-1)">↑</button>
+      <button class="btn" style="padding:5px 10px" onclick="menuItemMove(${i},1)">↓</button>
+      <button class="btn" style="padding:5px 10px" onclick="menuItemEdit(${i})">✎</button>
+      <button class="btn danger" style="padding:5px 10px" onclick="menuItemDel(${i})">✕</button>
+    </div>`).join('') || '<p class="empty">אין מנות בתפריט — הוסיפו למעלה</p>';
+}
+function menuItemAvail(i,on){ menuDraft.items[i].avail=on; saveMenuDraft(); }
+function menuItemMove(i,d){ const j=i+d; if(j<0||j>=menuDraft.items.length)return;
+  [menuDraft.items[i],menuDraft.items[j]]=[menuDraft.items[j],menuDraft.items[i]]; saveMenuDraft(); renderMenuEditor(); }
+function menuItemDel(i){ if(!confirm(`למחוק את "${menuDraft.items[i].name}" מהתפריט?`))return;
+  menuDraft.items.splice(i,1); saveMenuDraft(); renderMenuEditor(); }
+function menuItemEdit(i){
+  const it=menuDraft.items[i];
+  openModal(`<div class="modal-h"><span>עריכת מנה</span><button class="modal-x" onclick="closeModal()">×</button></div>
+   <div class="modal-b">
+     <div class="field"><label>שם</label><input id="meName" value="${esc(it.name)}"></div>
+     <div class="two"><div class="field"><label>קטגוריה</label><input id="meCat" value="${esc(it.cat||'')}"></div>
+     <div class="field"><label>מחיר (₪)</label><input id="mePrice" type="number" value="${it.price}"></div></div>
+     <div class="field"><label>תיאור</label><input id="meDesc" value="${esc(it.desc||'')}"></div>
+     <div class="field"><label>החלפת תמונה (אופציונלי)</label><input id="meImg" type="file" accept="image/*"></div>
+     <button class="btn primary" style="width:100%" id="meSave">שמור</button>
+   </div>`);
+  document.getElementById('meSave').onclick=()=>{
+    const name=document.getElementById('meName').value.trim();
+    const price=parseFloat(document.getElementById('mePrice').value);
+    if(!name||isNaN(price)||price<0){alert('שם ומחיר תקינים נדרשים');return;}
+    Object.assign(it,{name,cat:document.getElementById('meCat').value.trim(),price,desc:document.getElementById('meDesc').value.trim()});
+    const f=document.getElementById('meImg').files[0];
+    const fin=()=>{ saveMenuDraft(); renderMenuEditor(); closeModal(); };
+    if(f) compressImage(f, dataUrl=>{ it.img=dataUrl; fin(); }); else fin();
+  };
+}
+
+/* client-side image compression → small base64 JPEG stored inside the menu JSON.
+   To move to a real image API later: upload `file` there instead and store the returned URL in it.img */
+function compressImage(file, cb){
+  const img=new Image();
+  img.onload=()=>{
+    const max=512, sc=Math.min(1, max/Math.max(img.width,img.height));
+    const c=document.createElement('canvas');
+    c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(img.src);
+    cb(c.toDataURL('image/jpeg',.72));
+  };
+  img.onerror=()=>{ alert('קובץ תמונה לא נתמך'); };
+  img.src=URL.createObjectURL(file);
+}
+
+document.getElementById('mnuAdd').onclick=()=>{
+  const name=document.getElementById('mnuName').value.trim();
+  const price=parseFloat(document.getElementById('mnuPrice').value);
+  if(!name||isNaN(price)||price<0){ alert('נא למלא שם ומחיר תקינים'); return; }
+  const item={id:'m_'+id(), name, cat:document.getElementById('mnuCat').value.trim(),
+    price, desc:document.getElementById('mnuDesc').value.trim(), avail:true};
+  const f=document.getElementById('mnuImg').files[0];
+  const fin=()=>{
+    menuDraft.items.push(item); saveMenuDraft();
+    ['mnuName','mnuCat','mnuDesc'].forEach(x=>document.getElementById(x).value='');
+    document.getElementById('mnuPrice').value='0'; document.getElementById('mnuImg').value='';
+    renderMenuEditor();
+  };
+  if(f) compressImage(f, dataUrl=>{ item.img=dataUrl; fin(); }); else fin();
+};
+document.getElementById('menuPublish').onclick=async()=>{
+  if(!S.growUrl){ alert('חברו קודם את הסנכרון עם Grow (הגדרות ← אישורי תשלום)'); return; }
+  menuDraft.config.name=document.getElementById('menuBizName').value.trim()||'Incanto';
+  menuDraft.config.payUrl=document.getElementById('menuPayUrl').value.trim();
+  saveMenuDraft();
+  const size=JSON.stringify(menuDraft).length;
+  if(size>4*1024*1024){ alert('התפריט גדול מדי (תמונות רבות) — מחקו/החליפו תמונות'); return; }
+  setMenuState('מפרסם...');
+  try{
+    const res=await fetch(growEndpoint('&action=savemenu'),{
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({menu:menuDraft})
+    });
+    const j=await res.json();
+    if(!j.ok) throw new Error(j.error||'?');
+    setMenuState('פורסם ✓ '+timeStr(now())+' — הלקוחות רואים את הגרסה הזו');
+  }catch(e){ setMenuState('הפרסום נכשל — בדקו חיבור ומפתח'); }
+};
+document.getElementById('menuReload').onclick=async()=>{
+  if(!S.growUrl){ alert('אין חיבור מוגדר'); return; }
+  setMenuState('טוען...');
+  try{
+    const res=await fetch(growEndpoint('&action=menu'));
+    const m=await res.json();
+    if(!m || !Array.isArray(m.items)) throw new Error('bad menu');
+    menuDraft=m; menuDraft.config=menuDraft.config||{};
+    saveMenuDraft(); renderMenuEditor();
+    setMenuState('נטען התפריט המפורסם ('+m.items.length+' מנות)');
+  }catch(e){ setMenuState('הטעינה נכשלה'); }
+};
+document.getElementById('menuLinkCopy').onclick=()=>{
+  const v=customerLink(); if(!v){ alert('חברו קודם את הסנכרון עם Grow'); return; }
+  navigator.clipboard && navigator.clipboard.writeText(v).then(()=>setMenuState('הקישור הועתק ✓')).catch(()=>{});
+  document.getElementById('menuLink').select();
+};
+document.querySelector('[data-mtab="menu"]') && (document.querySelector('[data-mtab="menu"]').addEventListener('click', renderMenuEditor));
+renderMenuEditor();
 </script>
 </body>
 </html>
