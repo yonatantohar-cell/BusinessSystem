@@ -1,5 +1,5 @@
 /* service worker — offline shell for קופה קיוסק בריכה */
-const CACHE = 'kupa-shell-v3';
+const CACHE = 'kupa-shell-v4';
 const ASSETS = [
   './',
   'index.html',
@@ -27,14 +27,19 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;   // GitHub API sync calls go straight to the network
+  if (url.origin !== location.origin) return;          // API calls (GitHub, Apps Script) go straight out
+  if (/menu\.(html|js)$/.test(url.pathname)) return;   // customer menu is always fetched fresh
 
   if (e.request.mode === 'navigate') {
-    // network-first so app updates land when online; cached shell when offline
+    // network-first so app updates land when online; cached shell when offline.
+    // only the POS shell itself is cached — never other navigations.
+    const isShell = url.pathname.endsWith('/') || url.pathname.endsWith('index.html');
     e.respondWith(
       fetch(e.request).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put('./', copy));
+        if (isShell) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put('./', copy));
+        }
         return res;
       }).catch(() =>
         caches.match('./').then(r => r || caches.match('index.html'))
