@@ -17,7 +17,7 @@
  */
 
 const KEY = 'CHANGE_ME_TO_A_LONG_RANDOM_SECRET';
-const VERSION = 5;           // bumped with the script; the app checks this to catch a stale deployment
+const VERSION = 6;           // bumped with the script; the app checks this to catch a stale deployment
 const MAX_ROWS = 500;        // payments log cap
 const MAX_ORDER_ROWS = 400;  // orders log cap
 const ORDERS_FEED_HOURS = 48;
@@ -56,7 +56,7 @@ function ordersSheet_() {
   let sh = ss.getSheetByName('orders');
   if (!sh) {
     sh = ss.insertSheet('orders', ss.getNumSheets());   // always appended last
-    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref', 'method', 'state', 'email']);
+    sh.appendRow(['created', 'order', 'name', 'phone', 'items', 'total', 'paid', 'payref', 'method', 'state', 'email', 'token']);
   }
   return sh;
 }
@@ -109,6 +109,92 @@ function setup() {
     VERSION, before, Math.max(0, ordersSheet_().getLastRow() - 1));
 }
 
+
+/* ================= Green Invoice (Morning) API =================
+   Credentials live in Script Properties, never in this file:
+     Project Settings → Script properties → add
+       GI_API_KEY     = your API key
+       GI_API_SECRET  = your API secret
+   Run giTest() once from the editor: it triggers the external-request
+   authorization prompt and prints the raw API responses to the log, so any
+   field-name mismatch is visible immediately instead of failing silently. */
+
+const GI_BASE = 'https://api.greeninvoice.co.il/api/v1';
+
+function giCreds_() {
+  const p = props_();
+  return { key: p.getProperty('GI_API_KEY') || '', secret: p.getProperty('GI_API_SECRET') || '' };
+}
+function giReady_() { const c = giCreds_(); return !!(c.key && c.secret); }
+
+/* JWT, cached until shortly before it expires */
+function giToken_() {
+  const p = props_();
+  const cached = p.getProperty('GI_TOKEN');
+  if (cached && Number(p.getProperty('GI_TOKEN_EXP') || 0) > Date.now() + 60000) return cached;
+  const c = giCreds_();
+  if (!c.key || !c.secret) throw new Error('GI credentials missing (Script properties GI_API_KEY / GI_API_SECRET)');
+  const res = UrlFetchApp.fetch(GI_BASE + '/account/token', {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ id: c.key, secret: c.secret }), muteHttpExceptions: true
+  });
+  const txt = res.getContentText();
+  var j = {};
+  try { j = JSON.parse(txt); } catch (e) {}
+  if (!j.token) throw new Error('GI token failed (HTTP ' + res.getResponseCode() + '): ' + txt.slice(0, 200));
+  p.setProperty('GI_TOKEN', j.token);
+  p.setProperty('GI_TOKEN_EXP', String(Date.now() + 25 * 60 * 1000));
+  return j.token;
+}
+
+function execUrl_() { return ScriptApp.getService().getUrl(); }
+
+/* create a hosted payment page for one order and return its URL */
+function giPaymentUrl_(o, returnTo) {
+  const token = giToken_();
+  const back = execUrl_() + '?action=paid&order=' + encodeURIComponent(o.order) +
+               '&t=' + encodeURIComponent(o.token) +
+               (returnTo ? '&back=' + encodeURIComponent(returnTo) : '');
+  const payload = {
+    description: 'הזמנה ' + o.order,
+    type: 400,                       // payment request; adjust if your account uses another document type
+    lang: 'he',
+    currency: 'ILS',
+    vatType: 0,
+    amount: o.total,
+    maxPayments: 1,
+    client: { name: o.name || 'לקוח', emails: o.email ? [o.email] : [], phone: o.phone || '' },
+    income: [{ description: 'הזמנה ' + o.order, quantity: 1, price: o.total, currency: 'ILS', vatType: 0 }],
+    remarks: 'הזמנה ' + o.order,
+    successUrl: back,
+    failureUrl: back + '&failed=1',
+    notifyUrl: execUrl_() + '?action=ginotify'
+  };
+  const res = UrlFetchApp.fetch(GI_BASE + '/payments/form', {
+    method: 'post', contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify(payload), muteHttpExceptions: true
+  });
+  const txt = res.getContentText();
+  var j = {};
+  try { j = JSON.parse(txt); } catch (e) {}
+  if (!j.url) throw new Error('GI form failed (HTTP ' + res.getResponseCode() + '): ' + txt.slice(0, 300));
+  return j.url;
+}
+
+/**
+ * Run this once from the editor after adding the credentials:
+ *  - triggers the authorization prompt for external requests
+ *  - verifies the credentials and prints the payment-page response
+ * Check View → Executions / the log for the result.
+ */
+function giTest() {
+  Logger.log('credentials present: %s', giReady_());
+  Logger.log('token ok: %s', giToken_().slice(0, 12) + '…');
+  const url = giPaymentUrl_({ order: 'TEST', total: 1, name: 'בדיקה', email: '', phone: '', token: 'test' }, '');
+  Logger.log('payment page: %s', url);
+}
+
 /* ================= tolerant payload parsing ================= */
 
 var AMOUNT_KEYS = ['sum', 'amount', 'paymentsum', 'transactionsum', 'firstpaymentsum', 'payment_sum', 'price', 'total'];
@@ -158,12 +244,36 @@ function doGet(e) {
     const action = String(p.action || '').toLowerCase();
 
     if (action === 'ping') {   // public: proves which script version is actually deployed
-      return json_({ ok: true, version: VERSION });
+      return json_({ ok: true, version: VERSION, gi: giReady_() });
     }
 
     if (action === 'menu') {   // public: the published digital menu
       return ContentService.createTextOutput(readMenu_())
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === 'paid') {   // return trip from the payment page
+      const o = findOrderRow_(String(p.order || ''));
+      const good = o && o.token && String(p.t || '') === o.token && !p.failed;
+      if (good) {
+        const sh = ordersSheet_();
+        sh.getRange(o.row, 7).setValue(1);
+        sh.getRange(o.row, 10).setValue('active');       // confirmed → straight to the kitchen board
+        if (!String(sh.getRange(o.row, 8).getValue())) sh.getRange(o.row, 8).setValue('greeninvoice');
+      }
+      const back = String(p.back || '');
+      const msg = good ? 'התשלום התקבל — ההזמנה נכנסה להכנה' : 'התשלום לא הושלם';
+      return HtmlService.createHtmlOutput(
+        '<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        (back ? '<meta http-equiv="refresh" content="2;url=' + back.replace(/"/g, '&quot;') +
+                (back.indexOf('?') >= 0 ? '&' : '?') + 'paid=' + (good ? '1' : '0') + '">' : '') +
+        '<body style="font-family:system-ui;text-align:center;padding:60px 20px">' +
+        '<h2>' + msg + '</h2><p>הזמנה #' + String(p.order || '') + '</p></body></html>');
+    }
+
+    if (action === 'ginotify') {   // provider callback (configured as notifyUrl)
+      return json_({ ok: true });
     }
 
     if (action === 'orderstatus') {   // public: one order's paid state only
@@ -210,6 +320,17 @@ function doPost(e) {
     const action = String(p0.action || body.action || '').toLowerCase();
 
     if (action === 'neworder') return newOrder_(body);          // public
+
+    if (action === 'paylink') {   // public: hosted payment page for an existing order
+      if (!giReady_()) return json_({ ok: false, error: 'gi not configured' });
+      const o = findOrderRow_(String(body.order || ''));
+      if (!o) return json_({ ok: false, error: 'not found' });
+      try {
+        return json_({ ok: true, url: giPaymentUrl_(o, String(body.back || '')) });
+      } catch (err) {
+        return json_({ ok: false, error: String(err).slice(0, 300) });
+      }
+    }
 
     if (action === 'confirmpaid') {   // public: customer says they finished the payment page
       const t = findOrderRow_(String(body.order || ''));
@@ -280,7 +401,7 @@ function newOrder_(body) {
     const state = method === 'online' ? 'pending_gateway' : 'active';
     sh.appendRow([Date.now(), orderNo, String(body.name || '').slice(0, 60),
       String(body.phone || '').slice(0, 30), itemsTxt, total, 0, '', method, state,
-      String(body.email || '').slice(0, 80)]);
+      String(body.email || '').slice(0, 80), Utilities.getUuid()]);
     const extra = sh.getLastRow() - 1 - MAX_ORDER_ROWS;
     if (extra > 0) sh.deleteRows(2, extra);
   } finally {
@@ -292,7 +413,7 @@ function newOrder_(body) {
 function ordersRows_() {
   const sh = ordersSheet_();
   const last = sh.getLastRow();
-  return last > 1 ? sh.getRange(2, 1, last - 1, 11).getValues() : [];
+  return last > 1 ? sh.getRange(2, 1, last - 1, 12).getValues() : [];
 }
 
 function listOrders_(wantState) {
@@ -313,7 +434,9 @@ function findOrderRow_(orderNo) {
   const rows = ordersRows_();
   for (var i = rows.length - 1; i >= 0; i--) {
     if (String(rows[i][1]) === orderNo) {
-      return { row: i + 2, order: orderNo, total: Number(rows[i][5]), paid: Number(rows[i][6]) };
+      return { row: i + 2, order: orderNo, total: Number(rows[i][5]), paid: Number(rows[i][6]),
+               name: String(rows[i][2]), email: String(rows[i][10] || ''), phone: String(rows[i][3]),
+               token: String(rows[i][11] || '') };
     }
   }
   return null;

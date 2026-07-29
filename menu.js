@@ -17,6 +17,7 @@ let cart = {};              // itemId -> qty
 let activeCat = null;
 let currentOrder = null;    // {order, total}
 let statusTimer = null;
+let apiPayReady = false;   // backend can create payment pages through the provider API
 
 /* ---------- load menu ----------
    Failures here are almost always configuration, not networking, so the
@@ -73,6 +74,11 @@ async function loadMenu() {
   MENU.config = MENU.config || {};
   if (MENU.config.name) { $('bizName').textContent = MENU.config.name; document.title = MENU.config.name + ' · תפריט'; }
   renderMenu();
+  // does the backend have API payments configured? enables online checkout even
+  // when no static payment link is set
+  fetch(api('action=ping')).then(r => r.json()).then(j => {
+    if (j && j.gi) { apiPayReady = true; renderCartBits(); }
+  }).catch(() => {});
 }
 
 function cats() {
@@ -144,7 +150,7 @@ function renderCartBits() {
   lines.querySelectorAll('[data-cadd]').forEach(b => b.onclick = () => { cart[b.dataset.cadd]++; renderMenu(); });
   lines.querySelectorAll('[data-csub]').forEach(b => b.onclick = () => { cart[b.dataset.csub]--; if (cart[b.dataset.csub] <= 0) delete cart[b.dataset.csub]; renderMenu(); });
   $('cartTotal').textContent = ILS(cartTotal());
-  const online = !!(MENU.config && MENU.config.payUrl);
+  const online = apiPayReady || !!(MENU.config && MENU.config.payUrl);
   $('payOnlineBtn').disabled = n === 0;
   $('payCounterBtn').disabled = n === 0;
   $('payOnlineBtn').style.display = online ? '' : 'none';
@@ -193,7 +199,7 @@ async function placeOrder(payMethod) {
     if (!j.ok) throw new Error(j.error || 'order failed');
     currentOrder = { order: j.order, total: cartTotal(), ...contact };
     $('cartSheet').classList.remove('show');
-    if (payMethod === 'online') openPayment(); else showConfirm(false);
+    if (payMethod === 'online') openPaymentSmart(); else showConfirm(false);
   } catch (e) {
     alert('שליחת ההזמנה נכשלה — נסו שוב');
   }
@@ -243,9 +249,39 @@ function payUrlFor(order) {
   return base + (base.includes('?') ? '&' : '?') + q;
 }
 
-function openPayment() {
+/* Ask the backend for a hosted payment page created through the provider API
+   (amount and customer already attached). Falls back to the configured static
+   link when the API is not set up, so checkout never breaks. */
+async function openPaymentSmart() {
   $('payOrderNo').textContent = '#' + currentOrder.order;
   $('payAmount').textContent = ILS(currentOrder.total);
+  $('payHint').textContent = 'מכין דף תשלום…';
+  $('payWrap').classList.add('show');
+  $('payFrame').src = 'about:blank';
+  try {
+    const res = await fetch(api('action=paylink'), {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ order: currentOrder.order, back: location.href.split('?')[0] + location.search })
+    });
+    const j = await res.json();
+    if (j.ok && j.url) { currentOrder.payUrl = j.url; openPayment(true); return; }
+    console.warn('paylink unavailable:', j.error);
+  } catch (e) { console.warn('paylink failed:', e.message); }
+  openPayment(false);   // static link + copy-amount aid
+}
+
+function openPayment(fromApi) {
+  $('payOrderNo').textContent = '#' + currentOrder.order;
+  $('payAmount').textContent = ILS(currentOrder.total);
+  if (fromApi) {
+    // the provider page already carries the amount and the customer details
+    $('payHint').innerHTML = `לתשלום ${ILS(currentOrder.total)} · הזמנה ${currentOrder.order}` +
+      `<br><span style="opacity:.7">הפרטים מולאו מראש; האישור יתקבל אוטומטית</span>`;
+    $('payFrame').src = currentOrder.payUrl;
+    $('payWrap').classList.add('show');
+    pollStatus();
+    return;
+  }
   $('payHint').innerHTML =
     `אם דף התשלום לא מילא את הפרטים — הזינו סכום <b>${currentOrder.total}</b> ₪` +
     ` <button id="payCopy" style="border:1.5px solid var(--line);background:var(--white);border-radius:8px;padding:2px 8px;font-size:12px;font-weight:800">העתק סכום</button>` +
@@ -259,7 +295,7 @@ function openPayment() {
   $('payWrap').classList.add('show');
   pollStatus();   // if the provider ever confirms server-side, the screen advances by itself
 }
-$('payExternal').onclick = () => { window.open(payUrlFor(currentOrder), '_blank', 'noopener'); };
+$('payExternal').onclick = () => { window.open(currentOrder.payUrl || payUrlFor(currentOrder), '_blank', 'noopener'); };
 /* the customer tells us they paid; the order moves to preparation and the
    cashier sees it as paid (amount is verifiable in the Morning dashboard) */
 $('payDone').onclick = async () => {
@@ -309,5 +345,14 @@ function showConfirm(paid) {
   cart = {}; renderMenu();
 }
 $('newOrderBtn').onclick = () => { $('confirm').classList.remove('show'); currentOrder = null; };
+
+/* the payment page sends the customer back here with ?paid=1&order=N */
+(function handlePaymentReturn() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('paid') === '1') {
+    currentOrder = { order: q.get('order') || '', total: 0 };
+    showConfirm(true);
+  }
+})();
 
 loadMenu();
