@@ -227,17 +227,34 @@ function payUrlFor(order) {
   const base = MENU.config.payUrl;
   const tpl = (MENU.config.payParams != null ? MENU.config.payParams : DEFAULT_PAY_PARAMS).trim();
   if (!tpl) return base;
-  const q = tpl
-    .replace(/\{total\}/g, encodeURIComponent(order.total))
-    .replace(/\{order\}/g, encodeURIComponent(order.order))
-    .replace(/\{name\}/g, encodeURIComponent(order.name || ''))
-    .replace(/\{email\}/g, encodeURIComponent(order.email || ''))
-    .replace(/\{phone\}/g, encodeURIComponent(order.phone || ''));
+  const vals = {
+    total: order.total, order: order.order,
+    name: order.name || '', email: order.email || '', phone: order.phone || ''
+  };
+  // build the query pair by pair and encode each value, so literal Hebrew in the
+  // template (e.g. description=הזמנה {order}) always produces a well-formed URL
+  const q = tpl.split('&').map(pair => {
+    const i = pair.indexOf('=');
+    if (i < 0) return encodeURIComponent(pair);
+    const k = pair.slice(0, i).trim();
+    const v = pair.slice(i + 1).replace(/\{(\w+)\}/g, (m, key) => (key in vals ? vals[key] : m));
+    return encodeURIComponent(k) + '=' + encodeURIComponent(v);
+  }).join('&');
   return base + (base.includes('?') ? '&' : '?') + q;
 }
+
 function openPayment() {
   $('payOrderNo').textContent = '#' + currentOrder.order;
   $('payAmount').textContent = ILS(currentOrder.total);
+  $('payHint').innerHTML =
+    `אם דף התשלום לא מילא את הפרטים — הזינו סכום <b>${currentOrder.total}</b> ₪` +
+    ` <button id="payCopy" style="border:1.5px solid var(--line);background:var(--white);border-radius:8px;padding:2px 8px;font-size:12px;font-weight:800">העתק סכום</button>` +
+    `<br>אסמכתה: הזמנה ${currentOrder.order} · ${esc(currentOrder.name || '')}`;
+  const copy = $('payCopy');
+  if (copy) copy.onclick = () => {
+    if (navigator.clipboard) navigator.clipboard.writeText(String(currentOrder.total))
+      .then(() => { copy.textContent = 'הועתק ✓'; }).catch(() => {});
+  };
   $('payFrame').src = payUrlFor(currentOrder);
   $('payWrap').classList.add('show');
   pollStatus();   // if the provider ever confirms server-side, the screen advances by itself
